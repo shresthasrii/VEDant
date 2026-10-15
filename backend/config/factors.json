@@ -1,0 +1,15 @@
+{
+  "tariff_inr_per_kwh": 8.0,
+  "grid_emission_factor_kg_co2_per_kwh": 0.7,
+  "emission_factor_note": "Configurable placeholder: 0.70 kg CO₂/kWh. Verify against latest Central Electricity Authority (CEA) CO2 baseline database.",
+  "hvac_sensitivity_per_deg_c": 0.06,
+  "hvac_min_ventilation_floor": 0.35,
+  "lighting_sparse_dimming_ratio": 0.40,
+  "lighting_vacant_ratio": 0.10,
+  "warmup_kwh_per_room_day": 1.5,
+  "default_comfort_setpoint_c": 24.0,
+  "max_comfort_setpoint_c": 28.0,
+  "min_comfort_setpoint_c": 22.0,
+  "currency_symbol": "₹",
+  "disclaimer": "All baseline and optimized figures are modeled screening estimates (P10-P90 ranges). No direct actuator or real equipment control is performed."
+}

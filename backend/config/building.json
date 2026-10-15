@@ -1,0 +1,160 @@
+{
+  "building": {
+    "id": "block-a",
+    "name": "Block A · Academic Block",
+    "floors_count": 3,
+    "total_spaces": 12,
+    "description": "3 floors, 12 academic spaces including lecture halls, computer labs, classrooms, and seminar spaces."
+  },
+  "floors": [
+    {"id": 1, "name": "Floor 1", "level": 1},
+    {"id": 2, "name": "Floor 2", "level": 2},
+    {"id": 3, "name": "Floor 3", "level": 3}
+  ],
+  "rooms": [
+    {
+      "id": "101",
+      "name": "Lecture Hall A",
+      "floor": 1,
+      "type": "lecture_hall",
+      "capacity": 80,
+      "rated_kw": {"hvac": 6.0, "lighting": 1.2, "plug": 1.5},
+      "accessible": true,
+      "equipment": ["projector", "mic", "screen", "whiteboard"],
+      "sensor_offline": false,
+      "pos_3d": {"x": -1.7, "y": -1.7, "z": 0.0, "w": 1.6, "d": 1.6, "h": 0.8}
+    },
+    {
+      "id": "102",
+      "name": "Computer Lab",
+      "floor": 1,
+      "type": "lab",
+      "capacity": 40,
+      "rated_kw": {"hvac": 4.0, "lighting": 0.8, "plug": 3.5},
+      "accessible": true,
+      "equipment": ["computers", "projector", "lan_switch", "whiteboard"],
+      "sensor_offline": false,
+      "pos_3d": {"x": 0.1, "y": -1.7, "z": 0.0, "w": 1.6, "d": 1.6, "h": 0.8}
+    },
+    {
+      "id": "103",
+      "name": "Reading Room",
+      "floor": 1,
+      "type": "reading_room",
+      "capacity": 60,
+      "rated_kw": {"hvac": 3.5, "lighting": 0.9, "plug": 0.8},
+      "accessible": true,
+      "equipment": ["study_desks", "wifi"],
+      "sensor_offline": false,
+      "pos_3d": {"x": -1.7, "y": 0.1, "z": 0.0, "w": 1.6, "d": 1.6, "h": 0.8}
+    },
+    {
+      "id": "104",
+      "name": "Admin Office",
+      "floor": 1,
+      "type": "office",
+      "capacity": 12,
+      "rated_kw": {"hvac": 1.5, "lighting": 0.3, "plug": 0.6},
+      "accessible": true,
+      "equipment": ["workstations", "printers"],
+      "sensor_offline": false,
+      "pos_3d": {"x": 0.1, "y": 0.1, "z": 0.0, "w": 1.6, "d": 1.6, "h": 0.8}
+    },
+    {
+      "id": "201",
+      "name": "Classroom 201",
+      "floor": 2,
+      "type": "classroom",
+      "capacity": 50,
+      "rated_kw": {"hvac": 3.0, "lighting": 0.7, "plug": 0.6},
+      "accessible": true,
+      "equipment": ["projector", "whiteboard"],
+      "sensor_offline": false,
+      "pos_3d": {"x": -1.7, "y": -1.7, "z": 3.4, "w": 1.6, "d": 1.6, "h": 0.8}
+    },
+    {
+      "id": "202",
+      "name": "Seminar Hall",
+      "floor": 2,
+      "type": "seminar_hall",
+      "capacity": 60,
+      "rated_kw": {"hvac": 4.5, "lighting": 1.0, "plug": 0.8},
+      "accessible": true,
+      "equipment": ["av_system", "projector", "mic", "screens"],
+      "sensor_offline": false,
+      "pos_3d": {"x": 0.1, "y": -1.7, "z": 3.4, "w": 1.6, "d": 1.6, "h": 0.8}
+    },
+    {
+      "id": "203",
+      "name": "Electronics Lab",
+      "floor": 2,
+      "type": "lab",
+      "capacity": 30,
+      "rated_kw": {"hvac": 3.0, "lighting": 0.6, "plug": 3.0},
+      "accessible": false,
+      "equipment": ["oscilloscopes", "soldering_stations", "dc_supplies"],
+      "sensor_offline": false,
+      "pos_3d": {"x": -1.7, "y": 0.1, "z": 3.4, "w": 1.6, "d": 1.6, "h": 0.8}
+    },
+    {
+      "id": "204",
+      "name": "Faculty Room",
+      "floor": 2,
+      "type": "office",
+      "capacity": 14,
+      "rated_kw": {"hvac": 1.2, "lighting": 0.3, "plug": 0.5},
+      "accessible": true,
+      "equipment": ["desks", "laptops"],
+      "sensor_offline": false,
+      "pos_3d": {"x": 0.1, "y": 0.1, "z": 3.4, "w": 1.6, "d": 1.6, "h": 0.8}
+    },
+    {
+      "id": "301",
+      "name": "Classroom 301",
+      "floor": 3,
+      "type": "classroom",
+      "capacity": 50,
+      "rated_kw": {"hvac": 3.0, "lighting": 0.7, "plug": 0.6},
+      "accessible": false,
+      "equipment": ["projector", "whiteboard"],
+      "sensor_offline": false,
+      "pos_3d": {"x": -1.7, "y": -1.7, "z": 6.8, "w": 1.6, "d": 1.6, "h": 0.8}
+    },
+    {
+      "id": "302",
+      "name": "Design Studio",
+      "floor": 3,
+      "type": "studio",
+      "capacity": 35,
+      "rated_kw": {"hvac": 2.5, "lighting": 0.6, "plug": 1.2},
+      "accessible": false,
+      "equipment": ["drafting_tables", "screens", "tablets"],
+      "sensor_offline": false,
+      "pos_3d": {"x": 0.1, "y": -1.7, "z": 6.8, "w": 1.6, "d": 1.6, "h": 0.8}
+    },
+    {
+      "id": "303",
+      "name": "Meeting Room",
+      "floor": 3,
+      "type": "meeting",
+      "capacity": 16,
+      "rated_kw": {"hvac": 1.4, "lighting": 0.3, "plug": 0.5},
+      "accessible": false,
+      "equipment": ["screen", "conference_phone"],
+      "sensor_offline": true,
+      "pos_3d": {"x": -1.7, "y": 0.1, "z": 6.8, "w": 1.6, "d": 1.6, "h": 0.8}
+    },
+    {
+      "id": "304",
+      "name": "Collab Lounge",
+      "floor": 3,
+      "type": "lounge",
+      "capacity": 40,
+      "rated_kw": {"hvac": 2.0, "lighting": 0.5, "plug": 0.4},
+      "accessible": false,
+      "equipment": ["modular_seating", "screens", "whiteboard"],
+      "sensor_offline": false,
+      "pos_3d": {"x": 0.1, "y": 0.1, "z": 6.8, "w": 1.6, "d": 1.6, "h": 0.8}
+    }
+  ]
+}

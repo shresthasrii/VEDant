@@ -1,0 +1,15 @@
+{
+  "capacity_margin": 0.10,
+  "max_floor_change_consecutive": 1,
+  "disruption_penalty_kwh_per_move": 2.0,
+  "default_disruption_tolerance": "moderate",
+  "require_accessible_matching": true,
+  "require_equipment_matching": true,
+  "require_room_type_matching": true,
+  "allow_compatibility_groups_only": true,
+  "lock_admin_and_faculty_rooms": true,
+  "locked_room_ids": ["104", "204", "303"],
+  "blackout_periods": [
+    {"name": "Mid-term Examination Block", "day": "Friday", "start_hour": 14, "end_hour": 17}
+  ]
+}
