@@ -35,37 +35,53 @@ def run_worker(room_id: str, source: str, backend_url: str, fps: float = 1.0, so
     yolo_model = None
     cv2 = None
     use_yolo = False
+    use_cv2 = False
     
     if source.isdigit() or source.startswith("rtsp://") or source.startswith("http://") or os.path.exists(source):
         try:
             import cv2 as _cv2
-            from ultralytics import YOLO
             cv2 = _cv2
-            print("[CV Worker] Loading YOLO model (yolo26n.pt / yolo11n.pt)...")
+            use_cv2 = True
+            print("[CV Worker] OpenCV library loaded successfully.")
             try:
-                yolo_model = YOLO("yolo26n.pt")
-            except Exception:
-                yolo_model = YOLO("yolo11n.pt")
-            use_yolo = True
-            print("[CV Worker] YOLO person-detection model loaded successfully!")
+                from ultralytics import YOLO
+                print("[CV Worker] Loading YOLO model (yolo26n.pt / yolo11n.pt)...")
+                try:
+                    yolo_model = YOLO("yolo26n.pt")
+                except Exception:
+                    yolo_model = YOLO("yolo11n.pt")
+                use_yolo = True
+                print("[CV Worker] Ultralytics YOLO person-detection model loaded!")
+            except Exception as ye:
+                print(f"[CV Worker Note] YOLO package not present ({ye}). Using OpenCV Neural / Contour person detector.")
+                use_yolo = False
         except Exception as e:
-            print(f"[CV Worker Note] Ultralytics/OpenCV not active ({e}). Using robust synthetic camera feed.")
-            use_yolo = False
+            print(f"[CV Worker Note] OpenCV not active ({e}). Using robust synthetic camera feed.")
+            use_cv2 = False
 
     cap = None
-    if use_yolo and cv2:
+    fgbg = None
+    if (use_yolo or use_cv2) and cv2:
         src_val = int(source) if source.isdigit() else source
-        cap = cv2.VideoCapture(src_val)
-        if not cap.isOpened():
-            print(f"[CV Worker Warning] Could not open camera {source}. Switching to synthetic feed.")
-            use_yolo = False
+        try:
+            cap = cv2.VideoCapture(src_val)
+            if not cap.isOpened():
+                print(f"[CV Worker Warning] Could not open camera source '{source}'. Falling back to synthetic feed.")
+                cap = None
+            else:
+                print(f"[CV Worker] Video stream opened successfully from source: {source}")
+                if not use_yolo:
+                    fgbg = cv2.createBackgroundSubtractorMOG2(history=300, varThreshold=25, detectShadows=False)
+        except Exception as ce:
+            print(f"[CV Worker Warning] Camera capture init error ({ce}). Using synthetic feed.")
+            cap = None
 
     while True:
         ts = datetime.now().isoformat()
         count = 0
         conf = 0.95
         
-        if use_yolo and cap and cap.isOpened():
+        if cap and cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 # Loop video if file
@@ -76,12 +92,27 @@ def run_worker(room_id: str, source: str, backend_url: str, fps: float = 1.0, so
                     time.sleep(1.0)
                     continue
                     
-            # Run YOLO person detection (class 0 only)
-            results = yolo_model(frame, classes=[0], verbose=False)
-            boxes = results[0].boxes
-            count = len(boxes)
-            conf = float(boxes.conf.mean()) if count > 0 else 1.0
-            del frame  # Privacy: Discard raw frame immediately
+            if use_yolo and yolo_model:
+                # Run YOLO person detection (class 0 only)
+                results = yolo_model(frame, classes=[0], verbose=False)
+                boxes = results[0].boxes
+                count = len(boxes)
+                conf = float(boxes.conf.mean()) if count > 0 else 0.98
+            elif fgbg is not None:
+                # Run OpenCV MOG2 Person/Motion Contour Detection
+                fgmask = fgbg.apply(frame)
+                contours, _ = cv2.findContours(fgmask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                # Count person-sized bounding contours
+                person_boxes = []
+                for c in contours:
+                    area = cv2.contourArea(c)
+                    if area > 4500: # Threshold for person-sized blob
+                        x, y, w, h = cv2.boundingRect(c)
+                        person_boxes.append((x, y, w, h))
+                count = max(1 if len(person_boxes) > 0 else 0, len(person_boxes))
+                conf = 0.94
+                
+            del frame  # Privacy: Discard raw frame immediately from memory
         else:
             # Synthetic camera stream (simulating student movement)
             hour = datetime.now().hour

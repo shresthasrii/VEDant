@@ -1,6 +1,7 @@
 import json
 import uuid
 import random
+from datetime import datetime
 from typing import List, Dict, Any, Tuple
 from pathlib import Path
 from backend.db import get_db
@@ -342,8 +343,9 @@ def run_roomwise_optimization(day: str = "Monday", capacity_margin: float = 0.10
     # Monte Carlo Uncertainty Simulation (P10 - P90 ranges):
     # Noise on attendance (+/- 15%), HVAC duty (+/- 10%), device ratings
     # -------------------------------------------------------------
-    mc_runs = 50
+    mc_runs = 100
     mc_savings = []
+    robust_runs = 0
     for _ in range(mc_runs):
         noise = random.uniform(0.85, 1.15)
         hvac_noise = random.uniform(0.90, 1.10)
@@ -351,15 +353,26 @@ def run_roomwise_optimization(day: str = "Monday", capacity_margin: float = 0.10
         s_opt = optimized_kwh * hvac_noise * noise
         mc_savings.append(max(0.0, s_base - s_opt))
         
+        # Check capacity violations under attendance surge (+/- 15%)
+        violation = False
+        for m in moves:
+            perturbed_att = m["attendance"] * noise
+            t_cap = room_map[m["to_room_id"]]["capacity"]
+            if perturbed_att * (1.0 + capacity_margin) > t_cap:
+                violation = True
+                break
+        if not violation:
+            robust_runs += 1
+        
     mc_savings.sort()
     p10 = mc_savings[int(mc_runs * 0.10)]
     p90 = mc_savings[int(mc_runs * 0.90)]
-    robustness = round(min(1.0, max(0.0, (1.0 - (p90 - p10) / (savings_kwh or 1.0)))), 2)
+    robustness = round(robust_runs / mc_runs, 2)
     
     freed_rooms = [rid for rid, cls_list in best_schedule.items() if not cls_list and init_schedule[rid]]
     
     plan_id = f"plan_{uuid.uuid4().hex[:8]}"
-    created_at = "2026-10-15T14:15:00"
+    created_at = datetime.now().isoformat()
     
     # Save plan to SQLite
     with get_db() as conn:
