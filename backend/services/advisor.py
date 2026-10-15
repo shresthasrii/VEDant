@@ -105,7 +105,7 @@ Respond strictly with a JSON object containing keys:
 "faculty_notice": string
 Do not invent any numbers.
 """
-    raw_response = call_ollama(prompt, timeout=10)
+    raw_response = call_ollama(prompt, timeout=25)
     if raw_response:
         try:
             # Extract JSON block

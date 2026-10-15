@@ -163,98 +163,177 @@ def run_roomwise_optimization(day: str = "Monday", capacity_margin: float = 0.10
     baseline_kwh = compute_schedule_energy(init_schedule, 0)
     
     # -------------------------------------------------------------
-    # RoomWise Heuristic Optimization:
-    # Goal: identify rooms with low load or only 1-2 classes and pack them
-    # into already-active compatible rooms, allowing the donor room to remain OFF.
+    # Solvers: Heuristic (default) or Exact (PuLP MILP / CP-SAT)
     # -------------------------------------------------------------
-    candidate_rooms = sorted(
-        [r for r in rooms if not r.get("sensor_offline", False) and r["id"] not in constraints.get("locked_room_ids", [])],
-        key=lambda r: len(init_schedule[r["id"]])
-    )
-    
     best_schedule = {rid: list(cl) for rid, cl in init_schedule.items()}
     moves = []
-    
-    # Evaluate moving classes out of low-utilization rooms
-    for donor in candidate_rooms:
-        donor_classes = list(best_schedule[donor["id"]])
-        if not donor_classes:
-            continue
+
+    if solver_type in ["exact", "cp_sat", "milp"]:
+        try:
+            import pulp
+            prob = pulp.LpProblem("RoomWise_Exact", pulp.LpMinimize)
+            x = {}
+            for c in classes:
+                for r in rooms:
+                    feas, _, _ = can_assign(c, r, {}, capacity_margin, constraints)
+                    x[c["id"], r["id"]] = pulp.LpVariable(f"x_{c['id']}_{r['id']}", cat="Binary") if feas else 0
+                    
+            y = {r["id"]: pulp.LpVariable(f"y_{r['id']}", cat="Binary") for r in rooms}
+            obj_terms = []
+            for r in rooms:
+                rid = r["id"]
+                kw = r["hvac_kw"] + r["lighting_kw"] + r["plug_kw"]
+                obj_terms.append(y[rid] * factors["warmup_kwh_per_room_day"])
+                for c in classes:
+                    if x[c["id"], rid] != 0:
+                        hrs = c["end_hour"] - c["start_hour"]
+                        obj_terms.append(x[c["id"], rid] * hrs * kw)
+                        if c["room_id"] != rid:
+                            obj_terms.append(x[c["id"], rid] * (disruption_penalty * 0.5))
+            prob += pulp.lpSum(obj_terms)
             
-        temp_moves = []
-        all_moved = True
+            for c in classes:
+                prob += pulp.lpSum([x[c["id"], r["id"]] for r in rooms if x[c["id"], r["id"]] != 0]) == 1
+            for c in classes:
+                for r in rooms:
+                    if x[c["id"], r["id"]] != 0:
+                        prob += x[c["id"], r["id"]] <= y[r["id"]]
+                        
+            for i, c1 in enumerate(classes):
+                for j in range(i + 1, len(classes)):
+                    c2 = classes[j]
+                    overlap = max(c1["start_hour"], c2["start_hour"]) < min(c1["end_hour"], c2["end_hour"])
+                    if overlap and not (c1.get("compatibility_group") and c1["compatibility_group"] == c2.get("compatibility_group")):
+                        for r in rooms:
+                            if x[c1["id"], r["id"]] != 0 and x[c2["id"], r["id"]] != 0:
+                                prob += x[c1["id"], r["id"]] + x[c2["id"], r["id"]] <= 1
+                                
+            prob.solve(pulp.PULP_CBC_CMD(msg=0))
+            if pulp.LpStatus[prob.status] == "Optimal":
+                exact_schedule = {r["id"]: [] for r in rooms}
+                for c in classes:
+                    for r in rooms:
+                        if x[c["id"], r["id"]] != 0 and pulp.value(x[c["id"], r["id"]]) > 0.5:
+                            exact_schedule[r["id"]].append(c)
+                
+                exact_moves = []
+                for r in rooms:
+                    for c in exact_schedule[r["id"]]:
+                        if c["room_id"] != r["id"]:
+                            f_rm = room_map[c["room_id"]]
+                            t_rm = r
+                            _, passed_checks, _ = can_assign(c, t_rm, {}, capacity_margin, constraints)
+                            exact_moves.append({
+                                "id": f"move_{uuid.uuid4().hex[:8]}",
+                                "class_id": c["id"],
+                                "course_code": c["course_code"],
+                                "course_name": c["course_name"],
+                                "from_room_id": f_rm["id"],
+                                "from_room_name": f_rm["name"],
+                                "to_room_id": t_rm["id"],
+                                "to_room_name": t_rm["name"],
+                                "start_hour": c["start_hour"],
+                                "end_hour": c["end_hour"],
+                                "attendance": c["effective_attendance"],
+                                "reasons": [
+                                    f"Exact MILP solver optimal allocation: {c['course_code']} to {t_rm['name']} ({t_rm['id']}).",
+                                    f"Enables {f_rm['name']} ({f_rm['id']}) to stay unpowered, saving {f_rm['hvac_kw'] + f_rm['lighting_kw']:.1f} kW rated load.",
+                                    f"Capacity verified: attendance {c['effective_attendance']} + {capacity_margin*100:.0f}% margin fits room capacity {t_rm['capacity']}."
+                                ],
+                                "checks_passed": passed_checks,
+                                "status": "pending"
+                            })
+                best_schedule = exact_schedule
+                moves = exact_moves
+        except Exception:
+            pass
+    else:
+        # Heuristic Solver (fast greedy right-sizing and room consolidation)
+        candidate_rooms = sorted(
+            [r for r in rooms if not r.get("sensor_offline", False) and r["id"] not in constraints.get("locked_room_ids", [])],
+            key=lambda r: len(init_schedule[r["id"]])
+        )
         
-        # Try finding a target room for each class in the donor room
-        for c in donor_classes:
-            found_target = None
-            target_checks = []
+        # Evaluate moving classes out of low-utilization rooms
+        for donor in candidate_rooms:
+            donor_classes = list(best_schedule[donor["id"]])
+            if not donor_classes:
+                continue
+                
+            temp_moves = []
+            all_moved = True
             
-            # Prioritize target rooms that are ALREADY active and energy-efficient (right-sizing)
-            sorted_targets = sorted(
-                [r for r in rooms if r["id"] != donor["id"] and r["id"] not in constraints.get("locked_room_ids", [])],
-                key=lambda r: (
-                    0 if best_schedule[r["id"]] else 1,
-                    0 if r["type"] in ["classroom", "lecture_hall", "seminar_hall"] and donor["type"] in ["classroom", "lecture_hall", "seminar_hall"] else 1,
-                    r["hvac_kw"] + r["lighting_kw"],
-                    r["capacity"]
+            # Try finding a target room for each class in the donor room
+            for c in donor_classes:
+                found_target = None
+                target_checks = []
+                
+                # Prioritize target rooms that are ALREADY active and energy-efficient (right-sizing)
+                sorted_targets = sorted(
+                    [r for r in rooms if r["id"] != donor["id"] and r["id"] not in constraints.get("locked_room_ids", [])],
+                    key=lambda r: (
+                        0 if best_schedule[r["id"]] else 1,
+                        0 if r["type"] in ["classroom", "lecture_hall", "seminar_hall"] and donor["type"] in ["classroom", "lecture_hall", "seminar_hall"] else 1,
+                        r["hvac_kw"] + r["lighting_kw"],
+                        r["capacity"]
+                    )
                 )
-            )
-            
-            for target in sorted_targets:
-                feasible, passed, failed = can_assign(c, target, best_schedule, capacity_margin, constraints)
-                if feasible:
-                    found_target = target
-                    target_checks = passed
+                
+                for target in sorted_targets:
+                    feasible, passed, failed = can_assign(c, target, best_schedule, capacity_margin, constraints)
+                    if feasible:
+                        found_target = target
+                        target_checks = passed
+                        break
+                        
+                if found_target:
+                    temp_moves.append({
+                        "class": c,
+                        "from_room": donor,
+                        "to_room": found_target,
+                        "checks": target_checks
+                    })
+                else:
+                    all_moved = False
                     break
                     
-            if found_target:
-                temp_moves.append({
-                    "class": c,
-                    "from_room": donor,
-                    "to_room": found_target,
-                    "checks": target_checks
-                })
-            else:
-                all_moved = False
-                break
-                
-        # If all classes in this donor room can be successfully relocated:
-        if all_moved and temp_moves:
-            # Check if moving saves modeled energy
-            test_schedule = {rid: list(cl) for rid, cl in best_schedule.items()}
-            for m in temp_moves:
-                test_schedule[m["from_room"]["id"]].remove(m["class"])
-                test_schedule[m["to_room"]["id"]].append(m["class"])
-                
-            test_kwh = compute_schedule_energy(test_schedule, len(moves) + len(temp_moves))
-            if test_kwh < baseline_kwh:
-                # Commit moves
-                best_schedule = test_schedule
+            # If all classes in this donor room can be successfully relocated:
+            if all_moved and temp_moves:
+                # Check if moving saves modeled energy
+                test_schedule = {rid: list(cl) for rid, cl in best_schedule.items()}
                 for m in temp_moves:
-                    c = m["class"]
-                    f_rm = m["from_room"]
-                    t_rm = m["to_room"]
-                    moves.append({
-                        "id": f"move_{uuid.uuid4().hex[:8]}",
-                        "class_id": c["id"],
-                        "course_code": c["course_code"],
-                        "course_name": c["course_name"],
-                        "from_room_id": f_rm["id"],
-                        "from_room_name": f_rm["name"],
-                        "to_room_id": t_rm["id"],
-                        "to_room_name": t_rm["name"],
-                        "start_hour": c["start_hour"],
-                        "end_hour": c["end_hour"],
-                        "attendance": c["effective_attendance"],
-                        "reasons": [
-                            f"Consolidates {c['course_code']} into {t_rm['name']} ({t_rm['id']}) which is already scheduled and powered.",
-                            f"Enables {f_rm['name']} ({f_rm['id']}) to stay powered OFF, saving {f_rm['hvac_kw'] + f_rm['lighting_kw']:.1f} kW rated load.",
-                            f"Capacity fit: attendance {c['effective_attendance']} + {capacity_margin*100:.0f}% safety margin fits room capacity {t_rm['capacity']}."
-                        ],
-                        "checks_passed": m["checks"],
-                        "status": "pending"
-                    })
+                    test_schedule[m["from_room"]["id"]].remove(m["class"])
+                    test_schedule[m["to_room"]["id"]].append(m["class"])
                     
+                test_kwh = compute_schedule_energy(test_schedule, len(moves) + len(temp_moves))
+                if test_kwh < baseline_kwh:
+                    # Commit moves
+                    best_schedule = test_schedule
+                    for m in temp_moves:
+                        c = m["class"]
+                        f_rm = m["from_room"]
+                        t_rm = m["to_room"]
+                        moves.append({
+                            "id": f"move_{uuid.uuid4().hex[:8]}",
+                            "class_id": c["id"],
+                            "course_code": c["course_code"],
+                            "course_name": c["course_name"],
+                            "from_room_id": f_rm["id"],
+                            "from_room_name": f_rm["name"],
+                            "to_room_id": t_rm["id"],
+                            "to_room_name": t_rm["name"],
+                            "start_hour": c["start_hour"],
+                            "end_hour": c["end_hour"],
+                            "attendance": c["effective_attendance"],
+                            "reasons": [
+                                f"Consolidates {c['course_code']} into {t_rm['name']} ({t_rm['id']}) which is already scheduled and powered.",
+                                f"Enables {f_rm['name']} ({f_rm['id']}) to stay powered OFF, saving {f_rm['hvac_kw'] + f_rm['lighting_kw']:.1f} kW rated load.",
+                                f"Capacity fit: attendance {c['effective_attendance']} + {capacity_margin*100:.0f}% safety margin fits room capacity {t_rm['capacity']}."
+                            ],
+                            "checks_passed": m["checks"],
+                            "status": "pending"
+                        })
+                        
     optimized_kwh = compute_schedule_energy(best_schedule, len(moves))
     savings_kwh = max(0.0, baseline_kwh - optimized_kwh)
     savings_pct = (savings_kwh / baseline_kwh * 100.0) if baseline_kwh > 0 else 0.0

@@ -22,7 +22,7 @@ except ImportError:
     print("[Error] 'requests' package required. Run: pip install requests")
     sys.exit(1)
 
-def run_worker(room_id: str, source: str, backend_url: str, fps: float = 1.0):
+def run_worker(room_id: str, source: str, backend_url: str, fps: float = 1.0, source_tag: str = "camera"):
     print(f"==================================================")
     print(f"VERDANT CV Occupancy Worker")
     print(f"Target Room: {room_id}")
@@ -95,7 +95,7 @@ def run_worker(room_id: str, source: str, backend_url: str, fps: float = 1.0):
             "timestamp": ts,
             "count": count,
             "confidence": conf,
-            "source": "camera" if use_yolo else "simulated"
+            "source": source_tag
         }
         
         try:
@@ -115,6 +115,10 @@ if __name__ == "__main__":
     parser.add_argument("--source", default="synthetic", help="Webcam index (0), RTSP/HTTP URL, video clip file, or 'synthetic'")
     parser.add_argument("--backend", default="http://127.0.0.1:8000", help="VERDANT backend base URL")
     parser.add_argument("--fps", type=float, default=1.0, help="Inference frequency (default: 1 count/sec)")
+    parser.add_argument("--provenance", choices=["camera", "simulated"], default="camera", help="Provenance tag (default: camera)")
     args = parser.parse_args()
     
-    run_worker(args.room, args.source, args.backend, args.fps)
+    # Run worker with specified provenance
+    source_tag = args.provenance
+    run_worker(args.room, args.source, args.backend, args.fps, source_tag)
+

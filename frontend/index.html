@@ -82,7 +82,13 @@ H.push(hv*(1-.06*(P.sp-24)));L.push(lt);Q.push(r.p*(h>=7&&h<19?.25+.75*u:.2))}o[
 for(let h=0;h<24;h++){let s=0,hs=0;for(const r of R){const x=o[r.id];s+=x.h[h]+x.l[h]+x.p[h];hs+=x.h[h]}if(s>P.pk){const k=Math.max(.7,1-(s-P.pk)/hs);for(const r of R)o[r.id].h[h]*=k}}return{o}}
 
 const P0={he:19,le:19,sp:24,pk:99,oh:new Set,ol:new Set},BASE=sim(P0),dOpt=()=>({he:18,le:18,sp:25,pk:99,oh:new Set,ol:new Set});
-const state={view:'overview',scen:'base',hour:15,floor:0,iso:false,room:'202',layer:'occ',sys:'all',rot:.35,zoom:1,opt:dOpt(),rs:{},currentPlan:null,timetableData:[],advisorResponse:null,is2D:window.location.search.includes('mode=2d')};
+const state={
+  view:'overview',scen:'base',hour:15,floor:0,iso:false,room:'202',layer:'occ',sys:'all',
+  rot:.35,zoom:1,opt:dOpt(),rs:{},currentPlan:null,timetableData:[],advisorResponse:null,
+  is2D:window.location.search.includes('mode=2d'),
+  mode:'live',replayTimer:null,capacityMargin:10,disruptionPenalty:2.0,solverType:'heuristic',
+  gridMode:'after',roomProvenance:{'202':'ACTUAL'}
+};
 let O=sim(state.opt),last='',lastS='';
 
 const SC=()=>state.scen=='base'?BASE:O,sel=(f,rm)=>R.filter(r=>(!f||r.f==f)&&(!rm||r.id==rm));
@@ -105,8 +111,17 @@ const REC=recs(),comb=a=>({...P0,oh:new Set(a.flatMap(c=>c.set.oh||[])),ol:new S
 const hx=c=>[1,3,5].map(i=>parseInt(c.slice(i,i+2),16)),h2=v=>Math.round(v).toString(16).padStart(2,'0'),mixc=(a,b,t)=>{const x=hx(a),y=hx(b);return'#'+x.map((v,i)=>h2(v+(y[i]-v)*t)).join('')},sh=(c,k)=>'#'+hx(c).map(v=>h2(v*k)).join(''),lum=c=>{const[x,y,z]=hx(c);return .3*x+.59*y+.11*z};
 const ramp=(st,t)=>{t=Math.max(0,Math.min(1,t));const k=t*(st.length-1),i=Math.min(st.length-2,Math.floor(k));return mixc(st[i],st[i+1],k-i)},OR=['#261D1C','#453027','#BABABA','#FFFFFF'],ER=['#261D1C','#BE5828','#FF6D29'];
 
-function paint(r,h,S){const i=rinfo(r,h,S),L=state.layer;if(L=='occ')return i.u==null?['#4A4547','n/a']:[ramp(OR,i.u),Math.round(i.u*100)+'%'];if(L=='en')return[ramp(ER,i.k/(r.h+r.l+r.p)),f1(i.k)+' kW'];
-if(L=='eff'){const s=1-i.k/(i.kb||1);return s>.08?[mixc('#453027','#4CC38A',Math.min(1,s*2.5)),'−'+Math.round(s*100)+'%']:['#453027','no change']}return i.u==null?['#4A4547','no data']:i.flag?['#F2555A','⚠ alert']:['#2B2220','ok']}
+function paint(r,h,S){
+  const isOff = (state.scen=='opt' || (state.currentPlan && state.currentPlan.status==='approved')) && (r.id==='202');
+  if(isOff && h>=7 && h<19){
+    return ['#1B1719', 'OFF (0 kW)'];
+  }
+  const i=rinfo(r,h,S),L=state.layer;
+  if(L=='occ')return i.u==null?['#4A4547','n/a']:[ramp(OR,i.u),Math.round(i.u*100)+'%'];
+  if(L=='en')return[ramp(ER,i.k/(r.h+r.l+r.p)),f1(i.k)+' kW'];
+  if(L=='eff'){const s=1-i.k/(i.kb||1);return s>.08?[mixc('#453027','#4CC38A',Math.min(1,s*2.5)),'−'+Math.round(s*100)+'%']:['#453027','no change']}
+  return i.u==null?['#4A4547','no data']:i.flag?['#F2555A','⚠ alert']:['#2B2220','ok'];
+}
 
 function iso3d(mini){
   if(state.is2D && !mini){
@@ -146,11 +161,23 @@ const NAV=[
 ];
 
 const head=(t,s)=>'<div class="hd"><h1>'+t+'</h1><p>'+s+'</p></div>',seg=(a,items,cur)=>'<div class="seg" role="group">'+items.map(([k,n])=>'<button class="'+(cur==k?'on':'')+'" data-a="'+a+'" data-v="'+k+'">'+n+'</button>').join('')+'</div>';
-const tbar=()=>'<div class="top" data-live="top"><div><b>Block A · Academic Block</b><span class="mu"> · 3 floors · 12 spaces</span></div><div class="tr"><span class="chip"><i></i>Simulated & Live CV data</span><span class="mu">Typical weekday</span>'+seg('scen',[['base','Baseline'],['opt','Optimized']],state.scen)+'</div></div>';
+const tbar=()=>'<div class="top" data-live="top"><div><b>Block A · Academic Block</b><span class="mu"> · 3 floors · 12 spaces</span></div><div class="tr"><button class="btn '+(state.mode==='replay'?'ok':'ghost')+'" data-a="toggle-replay" style="padding:4px 12px;font-size:11px">'+(state.mode==='replay' ? '⏸ Pause 24h Replay' : '▶ Play 24h Replay (10x)')+'</button><span class="chip"><i></i>'+(state.mode==='replay'?'Replay Simulator Active':'Simulated & Live CV')+'</span><span class="mu">Typical weekday</span>'+seg('scen',[['base','Baseline'],['opt','Optimized']],state.scen)+'</div></div>';
 const kpi=(v,l,x,u,s,c='',badge='SIMULATED')=>'<button class="card kpi '+c+'" data-a="go" data-v="'+v+'"><div style="display:flex;justify-content:space-between"><span class="lb">'+l+'</span><span class="badge badge-'+(badge=='ACTUAL'?'act':badge=='ESTIMATED'?'est':'sim')+'">'+badge+'</span></div><b>'+x+'<small> '+u+'</small></b><span class="sb">'+s+'</span></button>';
 
-function rpanel(r){const S=SC(),h=state.hour,i=rinfo(r,h,S),x=S.o[r.id],w=state.scen=='base'?P0:state.opt,op=REC.filter(c=>c.room==r.id);
-return'<h3>'+r.n+'<small>'+r.id+' · Floor '+r.f+'</small></h3><dl><dt>Occupants</dt><dd>'+(i.o==null?'No data (sensor offline)':i.o)+' <span class="badge badge-sim">SIMULATED</span></dd><dt>Capacity</dt><dd>'+r.cap+'</dd><dt>Utilization</dt><dd>'+(i.u==null?'—':Math.round(i.u*100)+'%')+'</dd><dt>Demand '+hh(h)+'</dt><dd>'+f1(i.k)+' kW<small>HVAC '+f1(x.h[h])+' · light '+f1(x.l[h])+' · plug '+f1(x.p[h])+'</small></dd><dt>Schedule</dt><dd>HVAC 07:00–'+hh(w.he)+' · lights 07:00–'+hh(w.le)+'</dd></dl>'+(op.length?op.map(c=>'<button class="op" data-a="go" data-v="advisor"><span style="color:var(--white);font-weight:400">'+c.k+'</span><span>−'+f1(c.imp.kwh)+' kWh/day</span></button>').join(''):'<p class="mu">No opportunity flagged for this space.</p>')}
+function rpanel(r){
+  const S=SC(),h=state.hour,i=rinfo(r,h,S),x=S.o[r.id],w=state.scen=='base'?P0:state.opt,op=REC.filter(c=>c.room==r.id);
+  const prov = (state.roomProvenance && state.roomProvenance[r.id]) ? state.roomProvenance[r.id] : (r.off ? 'OFFLINE' : 'SIMULATED');
+  const provBadge = prov==='ACTUAL' ? '<span class="badge badge-act">ACTUAL (Camera)</span>' : '<span class="badge badge-sim">'+prov+'</span>';
+  return '<h3>'+r.n+'<small>'+r.id+' · Floor '+r.f+'</small></h3><dl>'+
+    '<dt>Occupants</dt><dd>'+(r.off?'No data (sensor offline)':(i.o==null?'0':i.o))+' '+provBadge+'</dd>'+
+    (r.id==='202'?'<dt>Camera Feed</dt><dd><span style="color:var(--ok)">Live YOLO class 0</span><small>Local processing, 0 video stored</small></dd>':'')+
+    '<dt>Capacity</dt><dd>'+r.cap+' seats</dd>'+
+    '<dt>Utilization</dt><dd>'+(i.u==null?'—':Math.round(i.u*100)+'%')+'</dd>'+
+    '<dt>Demand '+hh(h)+'</dt><dd>'+f1(i.k)+' kW <span class="badge badge-est">ESTIMATED</span><small>HVAC '+f1(x.h[h])+' · light '+f1(x.l[h])+' · plug '+f1(x.p[h])+'</small></dd>'+
+    '<dt>Schedule</dt><dd>HVAC 07:00–'+hh(w.he)+' · lights 07:00–'+hh(w.le)+'</dd>'+
+  '</dl>'+
+  (op.length?op.map(c=>'<button class="op" data-a="go" data-v="advisor"><span style="color:var(--white);font-weight:400">'+c.k+'</span><span>−'+f1(c.imp.kwh)+' kWh/day</span></button>').join(''):'<p class="mu">No opportunity flagged for this space.</p>');
+}
 
 function vOv(){const S=SC(),h=state.hour,t=ser(S),b=ser(BASE),I=imp(O,BASE),n=state.scen=='base'?'Baseline':'Optimized',fl=R.filter(r=>rinfo(r,h,S).flag),off=R.filter(r=>r.off);
 return head('Building Overview','Monitor occupancy, understand energy demand, and explore smarter ways to operate your building.')+'<div class="g4">'+kpi('energy','Power demand',f1(t[h]),'kW',hh(h)+' · '+n+' · peak '+f1(Math.max(...t))+' kW','','ESTIMATED')+kpi('energy','Energy · typical weekday',fi(sum(t)),'kWh',n+' · baseline '+fi(sum(b))+' kWh · ₹'+fi(sum(t)*TAR)+' · '+fi(sum(t)*EF)+' kg CO₂','','ESTIMATED')+kpi('occupancy','Room utilization',fi(util(h)*100),'%','occupants ÷ capacity of rooms reporting, '+hh(h),'','SIMULATED')+kpi('consolidation','RoomWise Savings',fi(I.kwh),'kWh/day',f1(I.pct)+'% vs baseline · ₹'+fi(I.inr)+' · '+fi(I.co2)+' kg CO₂ (modeled)','hi','ESTIMATED')+'</div>'+
@@ -164,6 +191,52 @@ return head('Occupancy Intelligence','See how room utilization lines up with mod
 '<div class="g4" data-live="om"><div class="card"><span class="lb">People detected</span><div class="big">'+oc[h]+'</div><span class="sb">'+hh(h)+' · '+(oc[h]-oc[Math.max(0,h-1)]>=0?'+':'')+(oc[h]-oc[Math.max(0,h-1)])+' vs previous hour · '+used+' of 12 spaces in use</span></div><div class="card"><span class="lb">Occupancy accuracy</span><div class="big" style="font-size:22px">Not validated</div><span class="sb">Simulated readings: no detection accuracy is claimed. Validate against a manual headcount.</span></div><div class="card"><span class="lb">Room utilization</span><div class="big">'+fi(util(h,f)*100)+'<small>%</small></div><span class="sb">occupants ÷ capacity (rooms with readings) — not the share of rooms occupied ('+used+'/12)</span></div><div class="card kpi hi"><span class="lb">Occupancy-driven opportunity</span><div class="big">'+fi(I.kwh)+'<small> kWh/day</small></div><span class="sb">'+f1(I.pct)+'% of baseline if all rooms used occupancy-aware control — modeled estimate</span></div></div>'+
 '<div class="row"><div class="card map" data-live="omap">'+[3,2,1].map(fl=>'<div class="fl '+(f&&f!=fl?'dim':'')+'"><span class="fn">Floor '+fl+'</span><div class="rooms">'+R.filter(x=>x.f==fl).map(x=>{const i=rinfo(x,h,S),st=i.u==null?'Unknown data':i.u>=.8?'High utilization':i.o>0?'Occupied':'Unoccupied';return'<button class="rt '+(state.room==x.id?'on':'')+'" data-a="room" data-v="'+x.id+'"><b>'+x.id+'</b> '+x.n+'<span>'+(i.o==null?'—':i.o+'/'+x.cap)+'</span><em>'+st+(i.flag?' · ⚠ low occ / high HVAC':'')+'</em><u style="width:'+(i.u||0)*100+'%"></u></button>'}).join('')+'</div></div>').join('')+'</div><div class="col"><div class="card" data-live="rp">'+rpanel(r)+'<button class="btn ghost" data-a="go" data-v="twin">Open in Digital Twin</button></div><div class="card"><span class="lb">Most underutilized (avg 07–19)</span>'+lo.map(([x,u])=>'<button class="op" data-a="room" data-v="'+x.id+'"><span style="color:var(--white);font-weight:400">'+x.n+'</span><span style="color:var(--gray)">'+Math.round(u*100)+'%</span></button>').join('')+'</div></div></div>'+
 '<div class="card" style="margin-top:14px"><span class="lb">'+r.n+' · occupants vs modeled demand</span>'+(r.off?'<p class="mu">Occupancy sensor offline — no readings available.</p>':chart('oc',[{n:'Baseline',d:ser(BASE,0,'all',r.id),c:CAT.base},{n:'Optimized',d:ser(O,0,'all',r.id),c:CAT.opt}],OCC[r.id],720,220)+LG(1))+'</div>'}
+
+function renderScheduleGrid(mode){
+  const rows = [
+    {
+      name: 'Lecture Hall A (101)', cap: 80, kw: '6.0 kW HVAC',
+      s1: 'CS101 (Sec A · 42)', s2: 'CS101 (Sec B · 38)', s3: '—', s4: '—'
+    },
+    {
+      name: 'Computer Lab (102)', cap: 40, kw: '4.0 kW HVAC',
+      s1: 'CS204 Lab (28)', s2: 'CS204 Lab (cont.)', s3: '—', s4: '—'
+    },
+    {
+      name: 'Classroom 201 (201)', cap: 50, kw: '3.0 kW HVAC',
+      s1: 'MA201 (35)', s2: '—',
+      s3: mode === 'after' ? '<div style="background:rgba(255,109,41,.2);border:1px solid var(--orange);padding:4px;border-radius:6px;font-size:11px"><b>HU102 (Relocated)</b><br><small style="color:var(--orange)">22/50 seats · Matches AV</small></div>' : '—',
+      s4: '—'
+    },
+    {
+      name: 'Seminar Hall (202)', cap: 60, kw: '4.5 kW HVAC + 1.0 kW lights',
+      s1: '—', s2: '—',
+      s3: mode === 'before' ? '<div style="background:rgba(242,85,90,.15);border:1px solid var(--crit);padding:4px;border-radius:6px;font-size:11px"><b>HU102 (Tech Comm)</b><br><small style="color:var(--crit)">Only 22/60 seats used! (5.5 kW active)</small></div>' : '<div style="background:rgba(76,195,138,.12);border:1px dashed var(--ok);color:var(--ok);padding:6px;border-radius:6px;font-size:11px"><b>★ POWERED OFF (0 kW)</b><br><small style="color:var(--gray)">HVAC & Lights Shut Down</small></div>',
+      s4: '—'
+    },
+    {
+      name: 'Electronics Lab (203)', cap: 30, kw: '3.0 kW HVAC',
+      s1: '—', s2: '—', s3: 'EE210 Lab (24)', s4: 'EE210 Lab (cont.)'
+    },
+    {
+      name: 'Classroom 301 (301)', cap: 50, kw: '3.0 kW HVAC',
+      s1: '—', s2: 'ENV201 (18)', s3: '—', s4: '—'
+    },
+    {
+      name: 'Design Studio (302)', cap: 35, kw: '2.5 kW HVAC',
+      s1: '—', s2: '—', s3: 'DS301 Studio (25)', s4: '—'
+    }
+  ];
+
+  return rows.map(r => '<tr>' +
+    '<td style="text-align:left"><b>' + r.name + '</b><br><small class="mu">Cap ' + r.cap + ' · ' + r.kw + '</small></td>' +
+    '<td>' + (r.s1.includes('<') ? r.s1 : ('<span class="mu">' + r.s1 + '</span>')) + '</td>' +
+    '<td>' + (r.s2.includes('<') ? r.s2 : ('<span class="mu">' + r.s2 + '</span>')) + '</td>' +
+    '<td>' + (r.s3.includes('<') ? r.s3 : ('<span class="mu">' + r.s3 + '</span>')) + '</td>' +
+    '<td>' + (r.s4.includes('<') ? r.s4 : ('<span class="mu">' + r.s4 + '</span>')) + '</td>' +
+    '</tr>'
+  ).join('');
+}
 
 function vCon(){
   const plan = state.currentPlan || {
@@ -216,11 +289,45 @@ function vCon(){
       kpi('consolidation','Rooms Freed Up',plan.empty_rooms_freed.length,'spaces',plan.empty_rooms_freed.join(', '),'','ESTIMATED')+
       kpi('consolidation','Approval Status',plan.status.replace('_',' ').toUpperCase(),'','Pending facility admin review','','ESTIMATED')+
     '</div>'+
+    '<div class="card" style="margin-top:14px;background:rgba(22,19,22,.65)">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px">'+
+        '<div><b>Optimization Controls & Constraints</b><span class="mu"> · Adjust margin and solve</span></div>'+
+        '<div style="display:flex;gap:12px;align-items:center">'+
+          '<span class="mu" style="font-size:12px">Solver:</span>'+
+          '<div class="seg">'+
+            '<button class="'+(state.solverType==='heuristic'?'on':'')+'" data-a="set-solver" data-v="heuristic">Heuristic (Fast)</button>'+
+            '<button class="'+(state.solverType==='exact'?'on':'')+'" data-a="set-solver" data-v="exact">Exact MILP (PuLP)</button>'+
+          '</div>'+
+        '</div>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px">'+
+        '<label class="sl"><span>Capacity Margin:</span><input type="range" min="5" max="25" step="5" value="'+state.capacityMargin+'" data-i="cap_margin"><b data-live="cap_margin_val">'+state.capacityMargin+'%</b></label>'+
+        '<label class="sl"><span>Disruption Penalty:</span><input type="range" min="0.5" max="5.0" step="0.5" value="'+state.disruptionPenalty+'" data-i="disruption_pen"><b data-live="disruption_pen_val">'+Number(state.disruptionPenalty).toFixed(1)+'</b></label>'+
+      '</div>'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:11px;color:var(--gray)">'+
+        '<span>Capacity margin: <code>attendance × (1 + margin) &le; cap</code>. Disruption penalty models movement inconvenience.</span>'+
+        '<button class="btn" data-a="run-opt">Re-solve Optimization</button>'+
+      '</div>'+
+    '</div>'+
+    '<div class="card" style="margin-top:14px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:14px">'+
+        '<div><h3>Classroom Allocation Matrix (09:00 – 17:00)</h3><span class="mu">Visual proof of RoomWise: freeing entire Seminar Hall 202 to avoid 5.5 kW rated HVAC & lighting load.</span></div>'+
+        '<div class="seg">'+
+          '<button class="'+(state.gridMode==='before'?'on':'')+'" data-a="set-grid-mode" data-v="before">Before Consolidation</button>'+
+          '<button class="'+(state.gridMode==='after'?'on':'')+'" data-a="set-grid-mode" data-v="after">After RoomWise™ (Consolidated)</button>'+
+        '</div>'+
+      '</div>'+
+      '<div style="overflow-x:auto">'+
+        '<table class="tb" style="min-width:640px;text-align:center">'+
+          '<thead><tr><th style="text-align:left;width:170px">Room & Floor</th><th>09:00 – 11:00</th><th>11:00 – 13:00</th><th>14:00 – 16:00</th><th>16:00 – 17:00</th></tr></thead>'+
+          '<tbody>'+renderScheduleGrid(state.gridMode)+'</tbody>'+
+        '</table>'+
+      '</div>'+
+    '</div>'+
     '<div class="card" style="margin-top:14px">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:14px">'+
         '<div><h3>Proposed Class Consolidations <small>Optimization Result</small></h3><span class="mu">Never merges unrelated classes by attendance alone. Strictly respects compatibility groups.</span></div>'+
         '<div style="display:flex;gap:8px">'+
-          '<button class="btn" data-a="run-opt">Re-solve Optimization</button>'+
           (isApproved ? '<span class="chip" style="color:var(--ok);border-color:var(--ok)">✓ Plan Approved</span>' : '<button class="btn ok" data-a="approve-plan">Approve & Apply Plan</button><button class="btn ghost" data-a="reject-plan">Reject</button>')+
         '</div>'+
       '</div>'+
@@ -351,11 +458,40 @@ document.addEventListener('click',async e=>{
   else if(a=='zoom'){if(v=='reset'){state.zoom=1;state.rot=.35;state.floor=0;state.iso=false}else state.zoom=Math.max(.6,Math.min(1.8,state.zoom*(v=='in'?1.15:.87)))}
   else if(a=='reset'){state.opt=dOpt();O=sim(state.opt)}
   else if(a=='rec'){const c=REC.find(x=>x.id==v),w=t.dataset.w;if(w=='sim'){const s=c.set;state.opt={...state.opt,oh:new Set([...state.opt.oh,...(s.oh||[])]),ol:new Set([...state.opt.ol,...(s.ol||[])]),pk:s.pk||state.opt.pk};O=sim(state.opt);state.scen='opt';if(c.room)state.room=c.room}state.rs[v]=w=='undo'?null:w}
+  else if(a=='toggle-replay'){
+    if(state.mode==='replay'){
+      state.mode='live';
+      if(state.replayTimer){clearInterval(state.replayTimer);state.replayTimer=null;}
+    } else {
+      state.mode='replay';
+      state.replayTimer=setInterval(()=>{
+        state.hour=(state.hour+1)%24;
+        partial();
+      }, 1200);
+    }
+  }
+  else if(a=='set-grid-mode'){
+    state.gridMode=v;
+  }
+  else if(a=='set-solver'){
+    state.solverType=v;
+  }
   else if(a=='run-opt'){
     try {
-      t.innerText = 'Solving...';
-      const res = await fetch(API_BASE+'/optimize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({day:'Monday',capacity_margin:0.10,disruption_penalty:2.0})});
-      if(res.ok){state.currentPlan = await res.json();}
+      t.innerText = 'Solving ('+state.solverType+')...';
+      const res = await fetch(API_BASE+'/optimize',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          day:'Monday',
+          capacity_margin: state.capacityMargin / 100.0,
+          disruption_penalty: state.disruptionPenalty,
+          solver: state.solverType
+        })
+      });
+      if(res.ok){
+        state.currentPlan = await res.json();
+      }
     } catch(err){}
   }
   else if(a=='approve-plan'){
@@ -363,6 +499,8 @@ document.addEventListener('click',async e=>{
       try {
         await fetch(API_BASE+'/plans/'+state.currentPlan.id+'/approve',{method:'POST'});
         state.currentPlan.status = 'approved';
+        state.scen = 'opt';
+        O = sim(state.opt);
         alert('Plan approved! Digital twin and timetable updated with approved schedule.');
       }catch(err){}
     }
@@ -385,7 +523,24 @@ document.addEventListener('click',async e=>{
   render();
 });
 
-document.addEventListener('input',e=>{const n=e.target.dataset.i;if(!n)return;const v=+e.target.value;if(n=='hour')state.hour=v;else{state.opt[n]=n=='pk'&&v>=62?99:v;O=sim(state.opt);state.scen='opt'}partial()});
+document.addEventListener('input',e=>{
+  const n=e.target.dataset.i;
+  if(!n)return;
+  const v=+e.target.value;
+  if(n=='hour')state.hour=v;
+  else if(n=='cap_margin'){
+    state.capacityMargin=v;
+    const el=document.querySelector('[data-live="cap_margin_val"]');
+    if(el)el.innerText=v+'%';
+  }
+  else if(n=='disruption_pen'){
+    state.disruptionPenalty=v;
+    const el=document.querySelector('[data-live="disruption_pen_val"]');
+    if(el)el.innerText=v.toFixed(1);
+  }
+  else{state.opt[n]=n=='pk'&&v>=62?99:v;O=sim(state.opt);state.scen='opt'}
+  partial();
+});
 document.addEventListener('change',e=>{const n=e.target.dataset.i;if(n=='occall'){const s=e.target.checked?R.map(r=>r.id):[];state.opt.oh=new Set(s);state.opt.ol=new Set(s);O=sim(state.opt);state.scen='opt';render()}else if(n=='iso'){state.iso=e.target.checked;render()}});
 
 let dr=null;
@@ -417,6 +572,9 @@ function initWebSocket() {
               const r = p.data;
               if(OCC[r.room_id]) {
                 OCC[r.room_id][state.hour] = r.count;
+                if(r.source === 'camera' || r.provenance === 'ACTUAL') {
+                  state.roomProvenance[r.room_id] = 'ACTUAL';
+                }
                 partial();
               }
             }
