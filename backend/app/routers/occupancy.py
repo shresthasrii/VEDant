@@ -58,3 +58,68 @@ async def ingest_occupancy(data: OccupancyIngest):
         "status": "success",
         "processed": result
     }
+
+@router.get("/occupancy/24h")
+def get_occupancy_24h(room_id: str = Query("202", alias="room")) -> Dict[str, Any]:
+    """Returns continuous 24-hour recorded telemetry for the specified room."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, capacity FROM rooms WHERE id = ?", (room_id,))
+        rm = cursor.fetchone()
+        room_name = rm["name"] if rm else f"Room {room_id}"
+        capacity = rm["capacity"] if rm else 50
+        
+        cursor.execute("""
+        SELECT hour, 
+               AVG(count) as avg_count, 
+               MAX(smoothed_count) as smoothed,
+               COUNT(*) as total_samples,
+               MAX(provenance) as provenance,
+               MAX(status) as status,
+               MAX(timestamp) as last_timestamp
+        FROM occupancy_readings
+        WHERE room_id = ?
+        GROUP BY hour
+        ORDER BY hour ASC
+        """, (room_id,))
+        rows = cursor.fetchall()
+        
+        hourly_records = []
+        hour_map = {r["hour"]: r for r in rows}
+        
+        for h in range(24):
+            if h in hour_map:
+                r = hour_map[h]
+                cnt = int(round(r["avg_count"])) if r["avg_count"] is not None else 0
+                hourly_records.append({
+                    "hour": h,
+                    "time_slot": f"{h:02d}:00",
+                    "count": cnt,
+                    "smoothed_count": round(r["smoothed"] or cnt, 1),
+                    "status": r["status"] or ("occupied" if cnt > 0 else "unoccupied"),
+                    "provenance": r["provenance"] or "ACTUAL",
+                    "samples": r["total_samples"],
+                    "last_recorded": r["last_timestamp"]
+                })
+            else:
+                hourly_records.append({
+                    "hour": h,
+                    "time_slot": f"{h:02d}:00",
+                    "count": 0,
+                    "smoothed_count": 0.0,
+                    "status": "unoccupied",
+                    "provenance": "SIMULATED",
+                    "samples": 0,
+                    "last_recorded": None
+                })
+                
+        return {
+            "room_id": room_id,
+            "room_name": room_name,
+            "capacity": capacity,
+            "recording_window": "24 Hours Continuous Telemetry",
+            "retention_policy": "30 days rolling in SQLite (zero images stored)",
+            "hourly_timeline": hourly_records,
+            "total_samples_logged": sum(r["samples"] for r in hourly_records),
+            "export_url": "/export/occupancy.csv"
+        }
