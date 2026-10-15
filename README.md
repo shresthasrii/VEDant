@@ -1,7 +1,7 @@
 # VERDANT · Green Building Intelligence
 > **Tagline**: *See the building. Understand the energy. Optimize the future.*
 
-[![Tests](https://img.shields.io/badge/tests-12%20passed%2C%20100%25-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-13%20passed%2C%20100%25-brightgreen)]()
 [![Backend](https://img.shields.io/badge/FastAPI-Python%203.10%2B-blue)]()
 [![Model](https://img.shields.io/badge/Local%20LLM-Ollama%20llama3.2-orange)]()
 [![Architecture](https://img.shields.io/badge/Digital%20Twin-3D%20Isometric%20%2B%202D%20Fallback-purple)]()
