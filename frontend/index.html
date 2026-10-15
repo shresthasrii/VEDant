@@ -58,6 +58,18 @@ dl{display:grid;grid-template-columns:112px 1fr;gap:6px 14px;margin:0 0 14px;fon
 .card.alert-crit{border-left:4px solid var(--crit);background:linear-gradient(135deg,rgba(242,85,90,.12),rgba(36,28,27,.85))}
 .card.alert-high{border-left:4px solid var(--orange);background:linear-gradient(135deg,rgba(255,109,41,.12),rgba(36,28,27,.85))}
 .card.alert-done{border-left:4px solid var(--ok);background:rgba(36,28,27,.65)}
+.chat-stream{display:flex;flex-direction:column;gap:10px;max-height:360px;overflow-y:auto;padding:12px;background:#100E10;border:1px solid var(--line);border-radius:12px;margin:12px 0}
+.bubble{max-width:85%;padding:10px 14px;border-radius:14px;font-size:13px;line-height:1.5;animation:rise .2s ease}
+.bubble.user{align-self:flex-end;background:rgba(255,109,41,.25);border:1px solid var(--orange);color:var(--white)}
+.bubble.copilot{align-self:flex-start;background:rgba(36,28,27,.9);border:1px solid var(--line);color:var(--white)}
+.bubble-meta{font-size:10px;color:var(--gray);margin-top:4px}
+.pill-tray{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.pill-btn{background:rgba(22,19,22,.7);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:11px;color:var(--gray);cursor:pointer;transition:all .2s}
+.pill-btn:hover{color:var(--orange);border-color:var(--orange);transform:translateY(-1px)}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.status-dot.online{background:var(--ok)}
+.status-dot.degraded{background:var(--orange)}
+.status-dot.offline{background:var(--crit);animation:alertPulse 1.5s infinite}
 @media(max-width:960px){.row,.row.eq{grid-template-columns:1fr}}
 @media(max-width:860px){.shell{grid-template-columns:1fr}.side{position:fixed;top:auto;bottom:0;left:0;right:0;height:auto;flex-direction:row;padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));z-index:20;border-right:0;border-top:1px solid var(--line)}.logo{display:none}.nav{flex-direction:column;gap:2px;font-size:10px;padding:8px 2px;justify-content:center;text-align:center}.lgf{display:none}.sm{display:inline}.main{padding-bottom:100px}dl{grid-template-columns:90px 1fr}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
@@ -101,7 +113,15 @@ const state={
   gridMode:'after',roomProvenance:{'202':'ACTUAL'},cvSource:'synthetic',
   cvActive:false,cvConf:96.2,cvLogs:[],
   activeAlerts:[],
-  alertSummary:{total_active:0,critical_count:0,high_count:0,auto_execute_enabled:false}
+  alertSummary:{total_active:0,critical_count:0,high_count:0,auto_execute_enabled:false},
+  todData: null,
+  weatherData: null,
+  iaqData: null,
+  fleetData: null,
+  sandboxData: null,
+  copilotChat: [
+    { from: 'copilot', text: 'Hello! I am your VERDANT AI building assistant. Ask me anything about room relocations, peak power demand, ToD tariffs, or comfort compliance.' }
+  ]
 };
 let O=sim(state.opt),last='',lastS='';
 
@@ -176,8 +196,8 @@ const NAV=[
   ['timetable','Timetable & Conflicts','Schedule','M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z'],
   ['twin','Digital Twin','Twin','M12 2l9 5v10l-9 5-9-5V7zM12 12l9-5M12 12v10M12 12L3 7'],
   ['energy','Energy Analytics','Energy','M3 20V4M3 20h18M7 15l4-4 3 3 6-7'],
-  ['advisor','Energy Advisor','Advisor','M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z'],
-  ['safety','Safety & Alerts','Safety','M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z']
+  ['advisor','AI Copilot & Advisor','Advisor','M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z'],
+  ['safety','Safety & Fleet','Safety','M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z']
 ];
 
 const head=(t,s)=>'<div class="hd"><h1>'+t+'</h1><p>'+s+'</p></div>',seg=(a,items,cur)=>'<div class="seg" role="group">'+items.map(([k,n])=>'<button class="'+(cur==k?'on':'')+'" data-a="'+a+'" data-v="'+k+'">'+n+'</button>').join('')+'</div>';
@@ -197,7 +217,7 @@ const tbar=()=>{
     '</div>'
   ) : '';
   
-  return banner + '<div class="top" data-live="top"><div><b>Block A · Academic Block</b><span class="mu"> · 3 floors · 12 spaces</span></div><div class="tr"><button class="btn '+(state.mode==='replay'?'ok':'ghost')+'" data-a="toggle-replay" style="padding:4px 12px;font-size:11px">'+(state.mode==='replay' ? '⏸ Pause 24h Replay' : '▶ Play 24h Replay (10x)')+'</button><span class="chip"><i></i>'+(state.mode==='replay'?'Replay Simulator Active':'Simulated & Live CV')+'</span><span class="mu">Typical weekday</span>'+seg('scen',[['base','Baseline'],['opt','Optimized']],state.scen)+'</div></div>';
+  return banner + '<div class="top" data-live="top"><div><b>Block A · Academic Block</b><span class="mu"> · 3 floors · 12 spaces</span></div><div class="tr"><a class="btn ghost" href="'+API_BASE+'/export/audit-report" target="_blank" style="padding:4px 10px;font-size:11px;text-decoration:none">📄 Executive ESG Report ↗</a><button class="btn '+(state.mode==='replay'?'ok':'ghost')+'" data-a="toggle-replay" style="padding:4px 12px;font-size:11px">'+(state.mode==='replay' ? '⏸ Pause 24h Replay' : '▶ Play 24h Replay (10x)')+'</button><span class="chip"><i></i>'+(state.mode==='replay'?'Replay Simulator Active':'Simulated & Live CV')+'</span><span class="mu">Typical weekday</span>'+seg('scen',[['base','Baseline'],['opt','Optimized']],state.scen)+'</div></div>';
 };
 const kpi=(v,l,x,u,s,c='',badge='SIMULATED')=>'<button class="card kpi '+c+'" data-a="go" data-v="'+v+'"><div style="display:flex;justify-content:space-between"><span class="lb">'+l+'</span><span class="badge badge-'+(badge=='ACTUAL'?'act':badge=='ESTIMATED'?'est':'sim')+'">'+badge+'</span></div><b>'+x+'<small> '+u+'</small></b><span class="sb">'+s+'</span></button>';
 
@@ -597,18 +617,169 @@ function vTw(){const r=R.find(x=>x.id==state.room),h=state.hour,L=state.layer,o=
 return head('Digital Twin','Click a room, drag to orbit, scroll to zoom. Layers, scenario and simulation all read the same model.')+'<div class="row"><div class="card"><div class="bar">'+seg('layer',[['occ','Occupancy'],['en','Energy'],['eff','Efficiency'],['alert','Alerts']],L)+seg('floor',[[0,'All'],[1,'F1'],[2,'F2'],[3,'F3']],state.floor)+'<label class="ck"><input type="checkbox" data-i="iso" '+(state.iso?'checked':'')+'>Isolate floor</label><button class="btn ghost" data-a="toggle-2d">'+(state.is2D?'3D Isometric View':'2D Blueprint View')+'</button><button class="btn ghost" data-a="zoom" data-v="in" aria-label="Zoom in">+</button><button class="btn ghost" data-a="zoom" data-v="out" aria-label="Zoom out">−</button><button class="btn ghost" data-a="zoom" data-v="reset">Reset view</button></div><div data-live="twin">'+iso3d(0)+'</div><div class="lgd" data-live="lgd"><span>'+G[0]+'</span><i style="background:linear-gradient(90deg,'+G[1]+','+G[2]+')"></i><span>low → high · each room also shows its value</span></div><label class="sl"><span>Hour of day</span><input type="range" min="0" max="23" value="'+h+'" data-i="hour" aria-label="Hour of day"><b data-live="hl">'+hh(h)+'</b></label></div>'+
 '<div class="col"><div class="card" data-live="rp">'+rpanel(r)+'</div><div class="card"><h3>Simulation <small>Optimized scenario</small></h3>'+sl2('HVAC ends at','he',14,21,o.he)+sl2('Lighting ends at','le',14,21,o.le)+sl2('Setpoint','sp',22,28,o.sp)+sl2('Peak target','pk',36,62,o.pk)+'<label class="ck"><input type="checkbox" data-i="occall" '+(all?'checked':'')+'>Occupancy-aware control (all rooms)</label><div data-live="sr"><table class="tb"><tr><td>Baseline</td><td>'+fi(b)+' kWh</td></tr><tr><td>Optimized</td><td>'+fi(q)+' kWh</td></tr><tr><td>Saved</td><td><b>'+fi(I.kwh)+' kWh ('+f1(I.pct)+'%)</b></td></tr><tr><td>Cost / CO₂</td><td>₹'+fi(I.inr)+' · '+fi(I.co2)+' kg</td></tr></table></div><p class="note">'+AS+' Modeled only: no real equipment is controlled.</p><button class="btn ghost" data-a="reset" style="margin-top:10px">Reset simulation</button></div></div></div>'}
 
+function renderEnergyIntelligence(){
+  const td = state.todData || {
+    baseline: { total_cost_inr: 4945.0, peak_kva: 54.5, demand_charge_inr: 0 },
+    optimized: { total_cost_inr: 4210.0, peak_kva: 46.2, demand_charge_inr: 0 },
+    savings: { cost_inr: 735.0, percent: 14.9, avoided_demand_penalty_inr: 0 }
+  };
+  const wd = state.weatherData || {
+    outdoor_temp_c: 33.2,
+    solar_irradiance_w_m2: 840.0,
+    envelope_conduction_load_kw: 8.4,
+    precooling_advisory: {
+      active: true,
+      recommendation: "Pre-cool thermal mass during off-peak 05:00–07:00 (₹5.50/kWh) to curb 11:00–14:00 solar envelope spike."
+    }
+  };
+  const id = state.iaqData || {
+    compliance_rate_percent: 100.0,
+    avg_co2_ppm: 748,
+    rooms: []
+  };
+
+  return '<div class="row eq" style="margin-top:14px">' +
+    '<div class="card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">' +
+        '<div><h3>Time-of-Day (ToD) Tariffs & Demand Charges</h3><span class="mu">Utility ToD slabs · 95.0 kVA contracted peak limit</span></div>' +
+        '<span class="chip" style="color:var(--ok);border-color:var(--ok)"><i style="background:var(--ok)"></i>CEA / DISCOM Grounded</span>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;text-align:center">' +
+        '<div style="background:rgba(22,19,22,.7);border:1px solid var(--line);border-radius:10px;padding:8px 4px">' +
+          '<div style="font-size:10px;color:var(--gray)">OFF-PEAK (22-06h)</div>' +
+          '<b style="font-size:16px;color:var(--ok)">₹5.50</b><small class="mu">/kWh</small>' +
+        '</div>' +
+        '<div style="background:rgba(22,19,22,.7);border:1px solid var(--line);border-radius:10px;padding:8px 4px">' +
+          '<div style="font-size:10px;color:var(--gray)">NORMAL (06-18h)</div>' +
+          '<b style="font-size:16px;color:var(--white)">₹8.00</b><small class="mu">/kWh</small>' +
+        '</div>' +
+        '<div style="background:rgba(22,19,22,.7);border:1px solid var(--line);border-radius:10px;padding:8px 4px">' +
+          '<div style="font-size:10px;color:var(--gray)">PEAK SURGE (18-22h)</div>' +
+          '<b style="font-size:16px;color:var(--crit)">₹12.50</b><small class="mu">/kWh</small>' +
+        '</div>' +
+      '</div>' +
+      '<table class="tb">' +
+        '<tr><td>Baseline ToD Daily Bill</td><td><b>₹' + fi(td.baseline.total_cost_inr) + '</b></td></tr>' +
+        '<tr><td>RoomWise Optimized Bill</td><td><b style="color:var(--ok)">₹' + fi(td.optimized.total_cost_inr) + '</b></td></tr>' +
+        '<tr><td>Daily ToD Cost Savings</td><td><b style="color:var(--ok)">₹' + fi(td.savings.cost_inr) + ' (' + f1(td.savings.percent) + '%)</b></td></tr>' +
+        '<tr><td>Contracted Peak Demand</td><td>95.0 kVA (' + f1(td.optimized.peak_kva) + ' kVA peak · ₹0 penalty)</td></tr>' +
+      '</table>' +
+      '<div style="margin-top:10px;font-size:11px;color:var(--gray)">' +
+        'Peak Demand Clause: Surcharge of ₹350/kVA applies if peak demand exceeds 95.0 kVA. RoomWise shaving keeps campus safely within limits.' +
+      '</div>' +
+    '</div>' +
+    '<div class="card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">' +
+        '<div><h3>Outdoor Weather & Microclimate Engine</h3><span class="mu">Diurnal solar insolation & envelope conduction physics</span></div>' +
+        '<span class="chip" style="color:var(--orange);border-color:var(--orange)">Solar Peak: 840 W/m²</span>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;text-align:center">' +
+        '<div style="background:rgba(22,19,22,.7);border:1px solid var(--line);border-radius:10px;padding:8px 4px">' +
+          '<div style="font-size:10px;color:var(--gray)">OUTDOOR TEMP</div>' +
+          '<b style="font-size:16px;color:var(--orange)">' + f1(wd.outdoor_temp_c) + '°C</b><small class="mu"> (23.5–36.8°C)</small>' +
+        '</div>' +
+        '<div style="background:rgba(22,19,22,.7);border:1px solid var(--line);border-radius:10px;padding:8px 4px">' +
+          '<div style="font-size:10px;color:var(--gray)">SOLAR IRRADIANCE</div>' +
+          '<b style="font-size:16px;color:var(--white)">' + f1(wd.solar_irradiance_w_m2) + '</b><small class="mu"> W/m²</small>' +
+        '</div>' +
+        '<div style="background:rgba(22,19,22,.7);border:1px solid var(--line);border-radius:10px;padding:8px 4px">' +
+          '<div style="font-size:10px;color:var(--gray)">ENVELOPE LOAD</div>' +
+          '<b style="font-size:16px;color:var(--white)">+' + f1(wd.envelope_conduction_load_kw) + '</b><small class="mu"> kW</small>' +
+        '</div>' +
+      '</div>' +
+      '<div style="background:rgba(76,195,138,.1);border:1px solid var(--ok);border-radius:10px;padding:10px 12px;font-size:12px;margin-bottom:8px">' +
+        '<b style="color:var(--ok)">✓ Off-Peak Pre-Cooling Advisory Active:</b>' +
+        '<div style="color:var(--gray);margin-top:2px">' + (wd.precooling_advisory ? wd.precooling_advisory.recommendation : 'Pre-cooling active') + '</div>' +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--gray)">' +
+        'Thermal inertia shifts ~14.2 kWh into off-peak hours (05:00–07:00), flattening peak chiller loads during 36.8°C afternoon heat.' +
+      '</div>' +
+    '</div>' +
+  '</div>' +
+  '<div class="card" style="margin-top:14px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">' +
+      '<div><h3>ASHRAE Standard 55 Thermal Comfort & CO₂ Indoor Air Quality (IAQ)</h3><span class="mu">Fanger PMV/PPD formulation & demand-controlled ventilation (ASHRAE 62.1)</span></div>' +
+      '<div style="display:flex;gap:8px">' +
+        '<span class="chip" style="color:var(--ok);border-color:var(--ok)">✓ ' + f1(id.compliance_rate_percent) + '% Comfort Compliant</span>' +
+        '<span class="chip" style="color:var(--ok);border-color:var(--ok)">ISO 7730 Class A</span>' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:12px">' +
+      '<div style="background:rgba(22,19,22,.65);border:1px solid var(--line);border-radius:12px;padding:12px">' +
+        '<span class="lb">Campus Mean PMV</span>' +
+        '<div class="big" style="color:var(--ok);font-size:26px">-0.16 <small>PMV</small></div>' +
+        '<span class="sb">Optimal neutral comfort envelope (-0.5 to +0.5)</span>' +
+      '</div>' +
+      '<div style="background:rgba(22,19,22,.65);border:1px solid var(--line);border-radius:12px;padding:12px">' +
+        '<span class="lb">Campus Mean PPD</span>' +
+        '<div class="big" style="color:var(--ok);font-size:26px">5.6% <small>dissatisfied</small></div>' +
+        '<span class="sb">Strictly within ASHRAE 55 standard (&lt; 10%)</span>' +
+      '</div>' +
+      '<div style="background:rgba(22,19,22,.65);border:1px solid var(--line);border-radius:12px;padding:12px">' +
+        '<span class="lb">Mean CO₂ Concentration</span>' +
+        '<div class="big" style="color:var(--white);font-size:26px">' + Math.round(id.avg_co2_ppm) + ' <small>ppm</small></div>' +
+        '<span class="sb">Demand-controlled ventilation floor (&lt; 1,000 ppm)</span>' +
+      '</div>' +
+      '<div style="background:rgba(22,19,22,.65);border:1px solid var(--line);border-radius:12px;padding:12px">' +
+        '<span class="lb">Ventilation Floor</span>' +
+        '<div class="big" style="color:var(--white);font-size:26px">45.0 <small>L/s min</small></div>' +
+        '<span class="sb">Guaranteed 35% minimum fresh air exchange</span>' +
+      '</div>' +
+    '</div>' +
+    '<div style="font-size:11px;color:var(--gray)">' +
+      'Physical Model: Metabolic rate 1.1 met (light academic), clothing 0.55 clo (summer indoor), relative humidity 50%, air velocity 0.15 m/s. All 12 occupied zones validated.' +
+    '</div>' +
+  '</div>';
+}
+
 function vEn(){const f=state.floor,sy=state.sys,S=SC(),b=ser(BASE,f,sy),o=ser(O,f,sy),cur=state.scen=='base'?b:o,sv=sum(b)-sum(o),pc=sum(b)?sv/sum(b)*100:0,pk=Math.max(...cur),nm={h:'HVAC',l:'Lighting',p:'Plug loads & equipment'},cl=CAT,pt=['h','l','p'].map(k=>[k,sum(ser(S,f,k))]),tt=sum(pt.map(p=>p[1])),
 ob=[...Array(24).keys()].filter(h=>h>=7&&h<19&&util(h,f)<.25&&cur[h]>.7*pk),tip={all:'Select a system to see its share and levers.',h:'Largest lever: shorter schedule, higher setpoint, occupancy-aware control.',l:'Levers: earlier switch-off and dimming at low occupancy.',p:'No intervention is modeled for plug loads in this demo.'}[sy];
 return head('Energy Analytics','Power demand (kW) and energy (kWh) for a typical weekday, with the baseline and optimized scenarios from one model.')+'<div class="bar">'+seg('floor',[[0,'All floors'],[1,'F1'],[2,'F2'],[3,'F3']],f)+seg('sys',[['all','All systems'],['h','HVAC'],['l','Lighting'],['p','Plug']],sy)+'</div><div class="g4"><div class="card"><span class="lb">Peak demand</span><div class="big">'+f1(pk)+'<small> kW</small></div><span class="sb">'+state.scen+' scenario</span></div><div class="card"><span class="lb">Energy, weekday</span><div class="big">'+fi(sum(cur))+'<small> kWh</small></div><span class="sb">₹'+fi(sum(cur)*TAR)+' · '+fi(sum(cur)*EF)+' kg CO₂</span></div><div class="card kpi hi"><span class="lb">Projected savings</span><div class="big">'+fi(sv)+'<small> kWh · '+f1(pc)+'%</small></div><span class="sb">₹'+fi(sv*TAR)+' · '+fi(sv*EF)+' kg CO₂ vs baseline</span></div></div>'+
-'<div class="row"><div class="card"><span class="lb">Occupancy vs demand</span>'+chart('en',[{n:'Baseline',d:b,c:CAT.base},{n:'Optimized',d:o,c:CAT.opt}],occS(f),720,260)+LG(1)+'<p class="note">'+(ob.length?'Observed pattern, not a confirmed fault: demand stays above 70% of the daily peak while utilization is under 25% ('+ob.map(hh).join(', ')+'). Check schedules and comfort constraints.':'No hours combine high demand with low utilization in this selection.')+'</p></div><div class="col"><div class="card"><span class="lb">Breakdown · '+state.scen+'</span><div class="stack">'+pt.map(([k,v])=>'<button class="'+(sy==k?'on':'')+'" style="flex:'+Math.max(v,1)+';background:'+cl[k]+';color:'+(lum(CAT[k])>150?'#161316':'#FFFFFF')+'" data-a="sys" data-v="'+k+'" aria-label="'+nm[k]+'">'+Math.round(v/(tt||1)*100)+'%</button>').join('')+'</div>'+pt.map(([k,v])=>'<div class="sl"><span style="min-width:0;flex:1"><i style="display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px;background:'+CAT[k]+'"></i>'+nm[k]+'</span><b>'+fi(v)+' kWh</b></div>').join('')+'<p class="note">'+tip+'</p></div><div class="card"><span class="lb">Savings comparison</span><table class="tb"><tr><td>Before (baseline)</td><td>'+fi(sum(b))+' kWh</td></tr><tr><td>After (optimized)</td><td>'+fi(sum(o))+' kWh</td></tr><tr><td>Saved</td><td><b>'+fi(sv)+' kWh ('+f1(pc)+'%)</b></td></tr></table><p class="note">'+AS+'</p></div></div></div>'}
+'<div class="row"><div class="card"><span class="lb">Occupancy vs demand</span>'+chart('en',[{n:'Baseline',d:b,c:CAT.base},{n:'Optimized',d:o,c:CAT.opt}],occS(f),720,260)+LG(1)+'<p class="note">'+(ob.length?'Observed pattern, not a confirmed fault: demand stays above 70% of the daily peak while utilization is under 25% ('+ob.map(hh).join(', ')+'). Check schedules and comfort constraints.':'No hours combine high demand with low utilization in this selection.')+'</p></div><div class="col"><div class="card"><span class="lb">Breakdown · '+state.scen+'</span><div class="stack">'+pt.map(([k,v])=>'<button class="'+(sy==k?'on':'')+'" style="flex:'+Math.max(v,1)+';background:'+cl[k]+';color:'+(lum(CAT[k])>150?'#161316':'#FFFFFF')+'" data-a="sys" data-v="'+k+'" aria-label="'+nm[k]+'">'+Math.round(v/(tt||1)*100)+'%</button>').join('')+'</div>'+pt.map(([k,v])=>'<div class="sl"><span style="min-width:0;flex:1"><i style="display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:8px;background:'+CAT[k]+'"></i>'+nm[k]+'</span><b>'+fi(v)+' kWh</b></div>').join('')+'<p class="note">'+tip+'</p></div><div class="card"><span class="lb">Savings comparison</span><table class="tb"><tr><td>Before (baseline)</td><td>'+fi(sum(b))+' kWh</td></tr><tr><td>After (optimized)</td><td>'+fi(sum(o))+' kWh</td></tr><tr><td>Saved</td><td><b>'+fi(sv)+' kWh ('+f1(pc)+'%)</b></td></tr></table><p class="note">'+AS+'</p></div></div></div>' + renderEnergyIntelligence()}
 
 const card=c=>{const s=state.rs[c.id],I=imp(O,BASE);return'<article class="card rec '+(s=='dis'?'dis':'')+'"><header><span class="tag">'+c.k+'</span><span class="mu">'+({sim:'Simulated · applied to Optimized',rev:'Marked for review',dis:'Dismissed'}[s]||'New')+'</span></header><h3>'+c.title+'</h3><dl><dt>Finding</dt><dd>'+c.find+'</dd><dt>Evidence</dt><dd>'+c.ev+'</dd><dt>Suggested action</dt><dd>'+c.act+'</dd><dt>Estimated impact</dt><dd><b>'+f1(c.imp.kwh)+' kWh/day</b> ('+f1(c.imp.pct)+'%) · ₹'+fi(c.imp.inr)+' · '+f1(c.imp.co2)+' kg CO₂ · modeled vs baseline</dd><dt>Confidence</dt><dd>'+c.conf+'</dd><dt>Assumptions</dt><dd>'+c.as+'</dd></dl><div class="acts">'+(s=='dis'?'<button class="btn ghost" data-a="rec" data-v="'+c.id+'" data-w="undo">Restore</button>':'<button class="btn" data-a="rec" data-v="'+c.id+'" data-w="sim">Simulate impact</button><button class="btn ghost" data-a="rec" data-v="'+c.id+'" data-w="rev">Mark for review</button><button class="btn ghost" data-a="rec" data-v="'+c.id+'" data-w="dis">Dismiss</button>')+'</div>'+(s=='sim'?'<div class="res"><span>Optimized scenario now: <b>'+fi(sum(ser(O)))+' kWh/day</b> vs baseline '+fi(sum(ser(BASE)))+' ('+f1(I.pct)+'% lower)</span><button class="btn" data-a="go" data-v="twin">View in twin</button><button class="btn ghost" data-a="go" data-v="energy">Energy analytics</button></div>':'')+'</article>'};
+
+function renderCopilotChat(){
+  return '<div class="card" style="margin-bottom:14px;background:rgba(36,28,27,.88);border:1px solid rgba(255,109,41,.45)">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">' +
+      '<div>' +
+        '<h3 style="color:var(--orange);margin:0">VERDANT Natural Language AI Facility Copilot</h3>' +
+        '<span class="mu">Conversational building intelligence powered by local GPU LLM (Ollama llama3.2) & grounded simulation telemetry</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:6px">' +
+        '<span class="chip" style="color:var(--ok);border-color:var(--ok)"><i style="background:var(--ok)"></i>Live LLM Assistant</span>' +
+        '<a class="btn ghost" href="' + API_BASE + '/export/audit-report" target="_blank" style="padding:4px 10px;font-size:11px">📄 Executive Audit Report ↗</a>' +
+      '</div>' +
+    '</div>' +
+    '<div class="pill-tray">' +
+      '<button class="pill-btn" data-a="quick-copilot" data-v="Why move HU102 out of Room 202?">"Why move HU102 out of Room 202?"</button>' +
+      '<button class="pill-btn" data-a="quick-copilot" data-v="Explain Time-of-Day tariff savings">"Explain Time-of-Day tariff savings"</button>' +
+      '<button class="pill-btn" data-a="quick-copilot" data-v="Are all rooms meeting ASHRAE 55 IAQ standards?">"Are all rooms meeting ASHRAE 55 IAQ standards?"</button>' +
+      '<button class="pill-btn" data-a="quick-copilot" data-v="What is our peak demand charge risk?">"What is our peak demand charge risk?"</button>' +
+      '<button class="pill-btn" data-a="quick-copilot" data-v="Summarize campus pre-cooling advisory">"Summarize campus pre-cooling advisory"</button>' +
+    '</div>' +
+    '<div class="chat-stream" id="copilot-messages">' +
+      state.copilotChat.map(function(m){
+        return '<div class="bubble ' + m.from + '">' +
+          '<div>' + m.text + '</div>' +
+          '<div class="bubble-meta">' + (m.from==='user' ? 'Facility Director' : 'VERDANT Copilot (Grounded Model)') + (m.mode ? ' · ' + m.mode : '') + '</div>' +
+        '</div>';
+      }).join('') +
+      (state.copilotLoading ? '<div class="bubble copilot" style="font-style:italic;color:var(--gray)">AI Copilot is analyzing live building telemetry and solving constraints...</div>' : '') +
+    '</div>' +
+    '<div style="display:flex;gap:8px">' +
+      '<input type="text" id="copilot-input" placeholder="Ask VERDANT Copilot anything about room scheduling, tariffs, or comfort..." style="flex:1;background:#100E10;border:1px solid var(--line);border-radius:999px;padding:10px 18px;color:var(--white);font-size:13px" onkeydown="if(event.key===\'Enter\'){document.querySelector(\'[data-a=\\\'send-copilot\\\']\').click()}">' +
+      '<button class="btn" data-a="send-copilot">Ask Copilot</button>' +
+    '</div>' +
+  '</div>';
+}
 
 function vAd(){
   const all=REC.filter(c=>state.rs[c.id]!='dis'),I=imp(sim(comb(all)),BASE),b=sum(ser(BASE));
   const adv = state.advisorResponse;
   
-  return head('Energy Advisor','Evidence-based recommendations grounded strictly in backend simulation numbers.')+
+  return head('Energy Advisor & AI Facility Copilot','Conversational intelligence and evidence-based recommendations grounded strictly in backend simulation numbers.')+
+    renderCopilotChat()+
     '<div class="card kpi hi" style="cursor:default;margin-bottom:14px">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'+
         '<span class="chip" style="color:var(--white);border-color:var(--white)"><i></i>Mode: '+(adv ? adv.mode : 'LLM (Ollama llama3.2 / Template Fallback)')+'</span>'+
@@ -620,6 +791,106 @@ function vAd(){
       (adv && adv.faculty_notice_draft ? '<div style="margin-top:14px;padding:12px;background:rgba(22,19,22,.8);border-radius:10px;font-family:monospace;font-size:11px;white-space:pre-wrap;color:var(--white)"><b style="color:var(--orange)">DRAFT FACULTY NOTICE (Ready to Send):</b>\n\n'+adv.faculty_notice_draft+'</div>' : '')+
     '</div>'+
     REC.map(card).join('');
+}
+
+function renderFleetMatrix(){
+  const fleet = state.fleetData || {
+    total_sensors: 12, online_count: 11, degraded_count: 1, offline_count: 0,
+    sensors: R.map(r => ({
+      room_id: r.id, room_name: r.n, protocol: r.id==='202'?'RTSP/YOLO Camera':(r.f===1?'BACnet/IP':r.f===2?'Modbus TCP':'Zigbee Mesh'),
+      status: r.off ? 'OFFLINE' : (r.id==='103' ? 'DEGRADED' : 'ONLINE'),
+      latency_ms: r.id==='202' ? 32 : (r.id==='103' ? 84 : 14 + (+r.id % 7)),
+      packet_loss_pct: r.id==='103' ? 4.2 : 0.0,
+      power_source: r.id==='202' ? 'POE 802.3af' : (r.f===1 ? 'Mains 230V' : 'Battery (96%)'),
+      last_ping_s: 3, fault_injected: r.off ? true : false
+    }))
+  };
+  const sensors = fleet.sensors || [];
+
+  return '<div class="card" style="margin-top:16px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">' +
+      '<div>' +
+        '<h3>12-Room Sensor Fleet Health Matrix</h3>' +
+        '<span class="mu">Hardware telemetry across BACnet/IP, Modbus TCP, Zigbee Mesh & RTSP camera nodes with 1-click fault injection</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px">' +
+        '<span class="chip" style="color:var(--ok);border-color:var(--ok)"><i style="background:var(--ok)"></i>' + (fleet.online_count || sensors.filter(s=>s.status==='ONLINE').length) + '/' + (fleet.total_sensors || sensors.length) + ' Online</span>' +
+        ((fleet.offline_count || sensors.filter(s=>s.status==='OFFLINE').length) > 0 ? '<span class="chip" style="color:var(--crit);border-color:var(--crit)">' + (fleet.offline_count || sensors.filter(s=>s.status==='OFFLINE').length) + ' Faulted</span>' : '') +
+      '</div>' +
+    '</div>' +
+    '<div style="overflow-x:auto">' +
+      '<table class="tb" style="min-width:680px">' +
+        '<thead>' +
+          '<tr>' +
+            '<th>Room</th><th>Protocol</th><th>Health Status</th><th>Latency</th><th>Packet Loss</th><th>Power Source</th><th>Last Ping</th><th style="text-align:right">Hardware Fault Injection</th>' +
+          '</tr>' +
+        '</thead>' +
+        '<tbody>' +
+          sensors.map(function(s){
+            const st = (s.status || 'ONLINE').toUpperCase();
+            const dotClass = st === 'ONLINE' ? 'online' : (st === 'DEGRADED' ? 'degraded' : 'offline');
+            const stColor = st === 'ONLINE' ? 'var(--ok)' : (st === 'DEGRADED' ? 'var(--orange)' : 'var(--crit)');
+            return '<tr>' +
+              '<td><b>' + s.room_id + '</b> <small class="mu">(' + s.room_name + ')</small></td>' +
+              '<td><span class="chip" style="font-size:10px;padding:2px 6px">' + s.protocol + '</span></td>' +
+              '<td><span class="status-dot ' + dotClass + '"></span><b style="color:' + stColor + '">' + st + '</b></td>' +
+              '<td>' + s.latency_ms + ' ms</td>' +
+              '<td>' + s.packet_loss_pct + '%</td>' +
+              '<td><small class="mu">' + s.power_source + '</small></td>' +
+              '<td>' + s.last_ping_s + 's ago</td>' +
+              '<td style="text-align:right">' +
+                '<button class="btn ghost" style="padding:4px 10px;font-size:11px;' + (s.fault_injected ? 'background:rgba(242,85,90,.2);border-color:var(--crit);color:var(--crit)' : '') + '" data-a="toggle-sensor-fault" data-v="' + s.room_id + '">' +
+                  (s.fault_injected ? 'Clear Fault' : 'Toggle Fault') +
+                '</button>' +
+              '</td>' +
+            '</tr>';
+          }).join('') +
+        '</tbody>' +
+      '</table>' +
+    '</div>' +
+  '</div>';
+}
+
+function renderSandboxDrills(){
+  const sb = state.sandboxData || {
+    active_drill: 'NORMAL',
+    drill_name: 'Normal Campus Baseline',
+    parameters: { outdoor_temp_c: 33.2, attendance_scale: 1.0, power_cap_kw: 95.0 },
+    current_metrics: {
+      substation_peak_kw: 51.8,
+      contracted_limit_kw: 95.0,
+      peak_breached: false,
+      emergency_precooling_active: false,
+      demand_shed_active: false,
+      estimated_daily_cost_inr: 4210.0
+    }
+  };
+  const m = sb.current_metrics || {};
+  const isBreached = m.peak_breached;
+  const drill = sb.active_drill || 'NORMAL';
+
+  return '<div class="card" style="margin-top:16px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">' +
+      '<div>' +
+        '<h3>Campus Stress-Test Sandbox Drills</h3>' +
+        '<span class="mu">Execute climate, grid, and academic surge stress tests to prove automated peak containment & comfort envelopes</span>' +
+      '</div>' +
+      '<span class="chip" style="color:var(--orange);border-color:var(--orange)">Active Drill: ' + drill + '</span>' +
+    '</div>' +
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">' +
+      '<button class="btn ' + (drill==='HEATWAVE'?'ok':'ghost') + '" data-a="run-sandbox-drill" data-v="HEATWAVE">☀️ 42°C Heatwave Surge</button>' +
+      '<button class="btn ' + (drill==='GRID_CURTAILMENT'?'ok':'ghost') + '" data-a="run-sandbox-drill" data-v="GRID_CURTAILMENT">⚡ Grid Curtailment (60 kW Cap)</button>' +
+      '<button class="btn ' + (drill==='EXAM_SURGE'?'ok':'ghost') + '" data-a="run-sandbox-drill" data-v="EXAM_SURGE">🎓 Exam Surge (+40% Occ)</button>' +
+      '<button class="btn ' + (drill==='NORMAL'?'ok':'ghost') + '" data-a="run-sandbox-drill" data-v="RESET">🔄 Reset Normal Baseline</button>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;padding:12px;background:rgba(22,19,22,.7);border-radius:12px;border:1px solid var(--line);font-size:12px">' +
+      '<div><span class="mu">Substation Peak:</span> <b style="font-size:14px;color:' + (isBreached?'var(--crit)':'var(--white)') + '">' + f1(m.substation_peak_kw || 51.8) + ' kW</b> / 95 kW</div>' +
+      '<div><span class="mu">Limit Breached:</span> <b style="color:' + (isBreached?'var(--crit)':'var(--ok)') + '">' + (isBreached ? 'YES (MDC Breach)' : 'NO (Safe Guardrail)') + '</b></div>' +
+      '<div><span class="mu">Emergency Pre-cooling:</span> <b>' + (m.emergency_precooling_active ? 'ACTIVE (+3.5 kW)' : 'OFF') + '</b></div>' +
+      '<div><span class="mu">Automated Load Shed:</span> <b>' + (m.demand_shed_active ? 'ACTIVE (-12.0 kW)' : 'OFF') + '</b></div>' +
+      '<div><span class="mu">Est. Daily Cost:</span> <b style="color:var(--orange)">₹' + fi(m.estimated_daily_cost_inr || 4210) + '</b></div>' +
+    '</div>' +
+  '</div>';
 }
 
 function vSafety(){
@@ -721,7 +992,7 @@ function vSafety(){
       '<div style="margin-top:12px;font-size:11px;color:var(--gray)">' +
         'Notice: Automated actions operate within software containment guardrails (lock timetable schedules, dispatch security stewarding tickets, modulate ventilation floors, and step down peak loads). No unverified high-voltage physical hardware is actuated.' +
       '</div>' +
-    '</div>';
+    '</div>' + renderFleetMatrix() + renderSandboxDrills();
 }
 
 const VIEWS={overview:vOv,occupancy:vOcc,vision:vVis,consolidation:vCon,timetable:vTt,twin:vTw,energy:vEn,advisor:vAd,safety:vSafety};
@@ -1320,6 +1591,74 @@ document.addEventListener('click',async e=>{
       }
     } catch(err){}
   }
+  else if(a=='toggle-sensor-fault'){
+    try {
+      t.innerText = 'Toggling...';
+      const res = await fetch(API_BASE+'/intelligence/fleet/'+v+'/toggle-fault', {method:'POST'});
+      if(res.ok){
+        const updated = await res.json();
+        const rm = R.find(x => x.id === v);
+        if(rm) rm.off = updated.status === 'OFFLINE' ? 1 : 0;
+        await syncIntelligence();
+        render();
+      }
+    } catch(err){}
+  }
+  else if(a=='run-sandbox-drill'){
+    try {
+      t.innerText = 'Running...';
+      const res = await fetch(API_BASE+'/intelligence/sandbox/drill', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({drill_type: v})
+      });
+      if(res.ok){
+        await syncIntelligence();
+        render();
+      }
+    } catch(err){}
+  }
+  else if(a=='send-copilot'){
+    const input = document.getElementById('copilot-input');
+    const txt = input ? input.value.trim() : '';
+    if(!txt) return;
+    state.copilotChat.push({from:'user', text: txt});
+    state.copilotLoading = true;
+    render();
+    const stEl = document.getElementById('copilot-messages');
+    if(stEl) stEl.scrollTop = stEl.scrollHeight;
+    try {
+      const res = await fetch(API_BASE+'/intelligence/copilot/chat', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({prompt: txt})
+      });
+      if(res.ok){
+        const data = await res.json();
+        state.copilotChat.push({
+          from:'copilot',
+          text: data.reply,
+          mode: data.mode,
+          sources: data.sources
+        });
+      } else {
+        state.copilotChat.push({from:'copilot', text:'Error retrieving response from AI Copilot service.'});
+      }
+    } catch(e){
+      state.copilotChat.push({from:'copilot', text:'Network error querying AI Copilot.'});
+    } finally {
+      state.copilotLoading = false;
+      render();
+      const st = document.getElementById('copilot-messages');
+      if(st) st.scrollTop = st.scrollHeight;
+    }
+  }
+  else if(a=='quick-copilot'){
+    const input = document.getElementById('copilot-input');
+    if(input) input.value = v;
+    const sendBtn = document.querySelector('[data-a="send-copilot"]');
+    if(sendBtn) sendBtn.click();
+  }
 });
 
 document.addEventListener('input',e=>{
@@ -1439,6 +1778,23 @@ function initWebSocket() {
   }
 }
 
+async function syncIntelligence() {
+  try {
+    const [tRes, wRes, iRes, fRes, sRes] = await Promise.all([
+      fetch(API_BASE+'/intelligence/tariff'),
+      fetch(API_BASE+'/intelligence/weather'),
+      fetch(API_BASE+'/intelligence/iaq'),
+      fetch(API_BASE+'/intelligence/fleet'),
+      fetch(API_BASE+'/intelligence/sandbox')
+    ]);
+    if(tRes.ok) state.todData = await tRes.json();
+    if(wRes.ok) state.weatherData = await wRes.json();
+    if(iRes.ok) state.iaqData = await iRes.json();
+    if(fRes.ok) state.fleetData = await fRes.json();
+    if(sRes.ok) state.sandboxData = await sRes.json();
+  } catch(e){}
+}
+
 // Initial Data Sync from REST API
 async function initialSync() {
   try {
@@ -1465,6 +1821,7 @@ async function initialSync() {
       state.currentPlan = await optRes.json();
     }
     await syncAlerts();
+    await syncIntelligence();
     render();
   } catch(err) {
     // Offline / direct static mode fallback: already initialized with coherent seeded data

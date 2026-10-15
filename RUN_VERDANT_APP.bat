@@ -36,9 +36,10 @@ echo ===========================================================================
 echo  SUCCESS: All VERDANT subsystems are active and running!
 echo  - Web Application:       http://localhost:8000
 echo  - Interactive API Docs:  http://localhost:8000/docs
+echo  - Executive ESG Report:  http://localhost:8000/export/audit-report
+echo  - AI Facility Copilot:   Integrated in Web App (GPU Llama 3.2)
+echo  - Sensor Fleet Matrix:   12-Room Hardware Telemetry & Drills
 echo  - 2D Blueprint Fallback: http://localhost:8000/?mode=2d
-echo  - Local GenAI Advisor:   http://127.0.0.1:11434 (llama3.2 GPU)
-echo  - CV Person Detector:    Ingesting at 1.0 count/sec (Room 202)
 echo ===============================================================================
 echo.
 echo Opening VERDANT in your default web browser...

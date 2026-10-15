@@ -49,3 +49,10 @@ def export_csv(report: str):
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=verdant_{report}.csv"}
     )
+
+@router.get("/audit-report")
+def export_audit_report():
+    from backend.services.reporting import generate_executive_audit_report_html
+    html_content = generate_executive_audit_report_html()
+    return Response(content=html_content, media_type="text/html")
+

@@ -10,7 +10,7 @@ from backend.seed.generator import seed_all
 from backend.ws import ws_manager
 from backend.services.replay import replay_manager
 
-from backend.app.routers import rooms, occupancy, timetable, consolidation, energy, advisor, export, health, alerts
+from backend.app.routers import rooms, occupancy, timetable, consolidation, energy, advisor, export, health, alerts, intelligence
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 
@@ -56,6 +56,7 @@ app.include_router(advisor.router)
 app.include_router(export.router)
 app.include_router(health.router)
 app.include_router(alerts.router)
+app.include_router(intelligence.router)
 
 # WebSocket Endpoint (/ws)
 @app.websocket("/ws")
