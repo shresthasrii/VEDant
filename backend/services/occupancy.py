@@ -69,6 +69,13 @@ def ingest_reading(room_id: str, count: int, source: str = "camera", confidence:
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (room_id, now, hour, count, smoothed, source, confidence, final_st, provenance))
         
+    risk_alert = None
+    try:
+        from backend.services.risk import evaluate_reading_risk
+        risk_alert = evaluate_reading_risk(room_id, count, provenance)
+    except Exception:
+        pass
+
     return {
         "room_id": room_id,
         "count": count,
@@ -76,7 +83,8 @@ def ingest_reading(room_id: str, count: int, source: str = "camera", confidence:
         "status": final_st,
         "source": source,
         "confidence": confidence,
-        "provenance": provenance
+        "provenance": provenance,
+        "risk_alert": risk_alert
     }
 
 def get_class_attendance(class_id: str, calibration_factor: float = 1.0) -> Dict[str, Any]:

@@ -114,3 +114,50 @@ class AdvisorResponse(BaseModel):
     modeled_savings: Dict[str, Any] = {}
     faculty_notice_draft: Optional[str] = None
     provenance: Provenance = Provenance.ESTIMATED
+
+class RiskAlertItem(BaseModel):
+    id: str
+    timestamp: str
+    risk_type: str
+    severity: str
+    title: str
+    description: str
+    room_id: Optional[str] = None
+    metric_value: Optional[float] = None
+    threshold_value: Optional[float] = None
+    status: str = "ACTIVE"
+    provenance: Provenance = Provenance.ACTUAL
+    action_type: str
+    action_title: str
+    action_details: str
+    auto_executed: bool = False
+    action_status: str = "PENDING"
+    executed_at: Optional[str] = None
+    execution_log: Optional[str] = None
+
+class AlertsSummary(BaseModel):
+    total_active: int
+    critical_count: int
+    high_count: int
+    auto_execute_enabled: bool
+
+class AlertsResponse(BaseModel):
+    alerts: List[RiskAlertItem]
+    summary: AlertsSummary
+
+class ExecuteActionRequest(BaseModel):
+    actor: str = "facility_manager"
+    notes: Optional[str] = None
+
+class DismissAlertRequest(BaseModel):
+    reason: Optional[str] = "Dismissed by facility manager"
+
+class AlertConfigRequest(BaseModel):
+    auto_execute: Optional[bool] = None
+    overcrowding_threshold_pct: Optional[float] = None
+    peak_demand_threshold_kw: Optional[float] = None
+
+class SimulateIncidentRequest(BaseModel):
+    incident_type: str = "overcrowding"
+    room_id: Optional[str] = "202"
+    custom_metric: Optional[float] = None

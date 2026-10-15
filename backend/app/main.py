@@ -10,7 +10,7 @@ from backend.seed.generator import seed_all
 from backend.ws import ws_manager
 from backend.services.replay import replay_manager
 
-from backend.app.routers import rooms, occupancy, timetable, consolidation, energy, advisor, export, health
+from backend.app.routers import rooms, occupancy, timetable, consolidation, energy, advisor, export, health, alerts
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 
@@ -55,6 +55,7 @@ app.include_router(energy.router)
 app.include_router(advisor.router)
 app.include_router(export.router)
 app.include_router(health.router)
+app.include_router(alerts.router)
 
 # WebSocket Endpoint (/ws)
 @app.websocket("/ws")
@@ -69,11 +70,15 @@ async def websocket_endpoint(websocket: WebSocket):
             
             cursor.execute("SELECT * FROM occupancy_readings ORDER BY id DESC LIMIT 50")
             latest_occ = [dict(o) for o in cursor.fetchall()]
+
+            cursor.execute("SELECT * FROM risk_alerts WHERE status = 'ACTIVE'")
+            active_alerts = [dict(a) for a in cursor.fetchall()]
             
         await websocket.send_json({
             "type": "initial_snapshot",
             "rooms": rooms_list,
             "recent_readings": latest_occ,
+            "active_alerts": active_alerts,
             "server_time": "2026-10-15T14:15:00"
         })
         

@@ -175,3 +175,27 @@ def init_db():
             details TEXT
         )
         """)
+        
+        # Risk Alerts & Automated Actions
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS risk_alerts (
+            id TEXT PRIMARY KEY,
+            timestamp TEXT NOT NULL,
+            risk_type TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            room_id TEXT,
+            metric_value REAL,
+            threshold_value REAL,
+            status TEXT NOT NULL DEFAULT 'ACTIVE',
+            provenance TEXT NOT NULL DEFAULT 'ACTUAL',
+            action_type TEXT NOT NULL,
+            action_title TEXT NOT NULL,
+            action_details TEXT NOT NULL,
+            auto_executed INTEGER NOT NULL DEFAULT 0,
+            action_status TEXT NOT NULL DEFAULT 'PENDING',
+            executed_at TEXT,
+            execution_log TEXT
+        )
+        """)

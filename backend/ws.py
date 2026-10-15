@@ -30,6 +30,13 @@ class ConnectionManager:
     def queue_patch(self, patch: Dict[str, Any]):
         self._batch_queue.append(patch)
 
+    def broadcast_sync(self, message: Dict[str, Any]):
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self.broadcast(message))
+        except RuntimeError:
+            pass
+
     async def flush_batches_loop(self):
         """Batched patches sent at most 4 Hz (every 250ms)."""
         while True:

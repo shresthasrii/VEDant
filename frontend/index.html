@@ -49,6 +49,15 @@ dl{display:grid;grid-template-columns:112px 1fr;gap:6px 14px;margin:0 0 14px;fon
 .tb{width:100%;border-collapse:collapse;font-size:13px}.tb th{text-align:left;padding:8px 4px;border-bottom:2px solid var(--line);font-size:11px;text-transform:uppercase;color:var(--gray)}.tb td{padding:8px 4px;border-bottom:1px solid var(--line)}.tb td+td{text-align:right}.note{font-size:11px;color:var(--gray);margin:10px 0 0}
 .rec{margin-top:14px}.rec.dis{opacity:.5}.rec header{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:12px}.tag{color:var(--orange);letter-spacing:.06em;text-transform:uppercase;font-size:11px}.acts{display:flex;flex-wrap:wrap;gap:8px}.res{margin-top:12px;padding:12px;border-radius:12px;background:linear-gradient(135deg,rgba(69,48,39,.95),rgba(143,72,40,.65));font-size:13px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .conn-banner{position:fixed;top:0;left:0;right:0;background:var(--crit);color:var(--white);text-align:center;font-size:11px;font-weight:600;padding:4px;z-index:99;display:none}
+@keyframes alertPulse{0%,100%{box-shadow:0 0 0 0 rgba(242,85,90,.7)}50%{box-shadow:0 0 0 8px rgba(242,85,90,0)}}
+.hud-alert-banner{background:linear-gradient(90deg,rgba(242,85,90,.96),rgba(69,48,39,.95));color:var(--white);padding:10px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;font-size:12px;border-bottom:1px solid rgba(255,255,255,.2);animation:rise .4s var(--ease);border-radius:12px;margin-bottom:16px}
+.hud-pulse{display:inline-block;width:9px;height:9px;border-radius:50%;background:#FFF;animation:alertPulse 1.2s infinite;margin-right:6px}
+.badge-crit{background:rgba(242,85,90,.25);color:var(--crit);border:1px solid var(--crit)}
+.badge-actioned{background:rgba(76,195,138,.25);color:var(--ok);border:1px solid var(--ok)}
+.badge-high{background:rgba(255,109,41,.25);color:var(--orange);border:1px solid var(--orange)}
+.card.alert-crit{border-left:4px solid var(--crit);background:linear-gradient(135deg,rgba(242,85,90,.12),rgba(36,28,27,.85))}
+.card.alert-high{border-left:4px solid var(--orange);background:linear-gradient(135deg,rgba(255,109,41,.12),rgba(36,28,27,.85))}
+.card.alert-done{border-left:4px solid var(--ok);background:rgba(36,28,27,.65)}
 @media(max-width:960px){.row,.row.eq{grid-template-columns:1fr}}
 @media(max-width:860px){.shell{grid-template-columns:1fr}.side{position:fixed;top:auto;bottom:0;left:0;right:0;height:auto;flex-direction:row;padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));z-index:20;border-right:0;border-top:1px solid var(--line)}.logo{display:none}.nav{flex-direction:column;gap:2px;font-size:10px;padding:8px 2px;justify-content:center;text-align:center}.lgf{display:none}.sm{display:inline}.main{padding-bottom:100px}dl{grid-template-columns:90px 1fr}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
@@ -90,7 +99,9 @@ const state={
   is2D:window.location.search.includes('mode=2d'),
   mode:'live',replayTimer:null,capacityMargin:10,disruptionPenalty:2.0,solverType:'heuristic',
   gridMode:'after',roomProvenance:{'202':'ACTUAL'},cvSource:'synthetic',
-  cvActive:false,cvConf:96.2,cvLogs:[]
+  cvActive:false,cvConf:96.2,cvLogs:[],
+  activeAlerts:[],
+  alertSummary:{total_active:0,critical_count:0,high_count:0,auto_execute_enabled:false}
 };
 let O=sim(state.opt),last='',lastS='';
 
@@ -118,6 +129,10 @@ function paint(r,h,S){
   const isOff = (state.scen=='opt' || (state.currentPlan && state.currentPlan.status==='approved')) && (r.id==='202');
   if(isOff && h>=7 && h<19){
     return ['#1B1719', 'OFF (0 kW)'];
+  }
+  const hasRisk = state.activeAlerts && state.activeAlerts.some(a=>a.room_id===r.id && a.status==='ACTIVE');
+  if(hasRisk){
+    return ['#F2555A', '⚠ HAZARD'];
   }
   const i=rinfo(r,h,S),L=state.layer;
   if(L=='occ')return i.u==null?['#4A4547','n/a']:[ramp(OR,i.u),Math.round(i.u*100)+'%'];
@@ -161,18 +176,48 @@ const NAV=[
   ['timetable','Timetable & Conflicts','Schedule','M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z'],
   ['twin','Digital Twin','Twin','M12 2l9 5v10l-9 5-9-5V7zM12 12l9-5M12 12v10M12 12L3 7'],
   ['energy','Energy Analytics','Energy','M3 20V4M3 20h18M7 15l4-4 3 3 6-7'],
-  ['advisor','Energy Advisor','Advisor','M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z']
+  ['advisor','Energy Advisor','Advisor','M12 3l2 5 5 2-5 2-2 5-2-5-5-2 5-2z'],
+  ['safety','Safety & Alerts','Safety','M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z']
 ];
 
 const head=(t,s)=>'<div class="hd"><h1>'+t+'</h1><p>'+s+'</p></div>',seg=(a,items,cur)=>'<div class="seg" role="group">'+items.map(([k,n])=>'<button class="'+(cur==k?'on':'')+'" data-a="'+a+'" data-v="'+k+'">'+n+'</button>').join('')+'</div>';
-const tbar=()=>'<div class="top" data-live="top"><div><b>Block A · Academic Block</b><span class="mu"> · 3 floors · 12 spaces</span></div><div class="tr"><button class="btn '+(state.mode==='replay'?'ok':'ghost')+'" data-a="toggle-replay" style="padding:4px 12px;font-size:11px">'+(state.mode==='replay' ? '⏸ Pause 24h Replay' : '▶ Play 24h Replay (10x)')+'</button><span class="chip"><i></i>'+(state.mode==='replay'?'Replay Simulator Active':'Simulated & Live CV')+'</span><span class="mu">Typical weekday</span>'+seg('scen',[['base','Baseline'],['opt','Optimized']],state.scen)+'</div></div>';
+const tbar=()=>{
+  const crit = state.activeAlerts ? state.activeAlerts.find(a => a.status === 'ACTIVE' && (a.severity === 'CRITICAL' || a.severity === 'HIGH')) : null;
+  const banner = crit ? (
+    '<div class="hud-alert-banner">' +
+      '<div style="display:flex;align-items:center;gap:6px">' +
+        '<span class="hud-pulse"></span>' +
+        '<b>HAZARD ALERT:</b> <span>' + crit.title + '</span>' +
+        '<span class="badge badge-crit">' + crit.severity + '</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;align-items:center">' +
+        '<button class="btn ok" data-a="execute-alert" data-v="' + crit.id + '" style="padding:4px 10px;font-size:11px">⚡ Execute Containment Action</button>' +
+        '<button class="btn ghost" data-a="go" data-v="safety" style="padding:4px 10px;font-size:11px">Review Hazards →</button>' +
+      '</div>' +
+    '</div>'
+  ) : '';
+  
+  return banner + '<div class="top" data-live="top"><div><b>Block A · Academic Block</b><span class="mu"> · 3 floors · 12 spaces</span></div><div class="tr"><button class="btn '+(state.mode==='replay'?'ok':'ghost')+'" data-a="toggle-replay" style="padding:4px 12px;font-size:11px">'+(state.mode==='replay' ? '⏸ Pause 24h Replay' : '▶ Play 24h Replay (10x)')+'</button><span class="chip"><i></i>'+(state.mode==='replay'?'Replay Simulator Active':'Simulated & Live CV')+'</span><span class="mu">Typical weekday</span>'+seg('scen',[['base','Baseline'],['opt','Optimized']],state.scen)+'</div></div>';
+};
 const kpi=(v,l,x,u,s,c='',badge='SIMULATED')=>'<button class="card kpi '+c+'" data-a="go" data-v="'+v+'"><div style="display:flex;justify-content:space-between"><span class="lb">'+l+'</span><span class="badge badge-'+(badge=='ACTUAL'?'act':badge=='ESTIMATED'?'est':'sim')+'">'+badge+'</span></div><b>'+x+'<small> '+u+'</small></b><span class="sb">'+s+'</span></button>';
 
 function rpanel(r){
   const S=SC(),h=state.hour,i=rinfo(r,h,S),x=S.o[r.id],w=state.scen=='base'?P0:state.opt,op=REC.filter(c=>c.room==r.id);
   const prov = (state.roomProvenance && state.roomProvenance[r.id]) ? state.roomProvenance[r.id] : (r.off ? 'OFFLINE' : 'SIMULATED');
   const provBadge = prov==='ACTUAL' ? '<span class="badge badge-act">ACTUAL (Camera)</span>' : '<span class="badge badge-sim">'+prov+'</span>';
-  return '<h3>'+r.n+'<small>'+r.id+' · Floor '+r.f+'</small></h3><dl>'+
+  const roomAlert = state.activeAlerts ? state.activeAlerts.find(a => a.room_id === r.id && a.status === 'ACTIVE') : null;
+  const alertBox = roomAlert ? (
+    '<div style="background:rgba(242,85,90,.18);border:1px solid var(--crit);border-radius:12px;padding:12px;margin-bottom:12px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<b style="color:var(--crit);font-size:12px">⚠ ' + roomAlert.severity + ' RISK DETECTED</b>' +
+        '<span class="badge badge-crit">' + roomAlert.risk_type + '</span>' +
+      '</div>' +
+      '<div style="margin:6px 0;font-size:12px;color:var(--white)">' + roomAlert.title + '</div>' +
+      '<button class="btn ok" data-a="execute-alert" data-v="' + roomAlert.id + '" style="padding:6px 12px;font-size:11px;width:100%;margin-top:6px">⚡ Execute Containment Action</button>' +
+    '</div>'
+  ) : '';
+  
+  return '<h3>'+r.n+'<small>'+r.id+' · Floor '+r.f+'</small></h3>' + alertBox + '<dl>'+
     '<dt>Occupants</dt><dd>'+(r.off?'No data (sensor offline)':(i.o==null?'0':i.o))+' '+provBadge+'</dd>'+
     (r.id==='202'?'<dt>Camera Feed</dt><dd><span style="color:var(--ok)">Live YOLO class 0</span><small>Local processing, 0 video stored</small></dd>':'')+
     '<dt>Capacity</dt><dd>'+r.cap+' seats</dd>'+
@@ -184,9 +229,26 @@ function rpanel(r){
 }
 
 function vOv(){const S=SC(),h=state.hour,t=ser(S),b=ser(BASE),I=imp(O,BASE),n=state.scen=='base'?'Baseline':'Optimized',fl=R.filter(r=>rinfo(r,h,S).flag),off=R.filter(r=>r.off);
-return head('Building Overview','Monitor occupancy, understand energy demand, and explore smarter ways to operate your building.')+'<div class="g4">'+kpi('energy','Power demand',f1(t[h]),'kW',hh(h)+' · '+n+' · peak '+f1(Math.max(...t))+' kW','','ESTIMATED')+kpi('energy','Energy · typical weekday',fi(sum(t)),'kWh',n+' · baseline '+fi(sum(b))+' kWh · ₹'+fi(sum(t)*TAR)+' · '+fi(sum(t)*EF)+' kg CO₂','','ESTIMATED')+kpi('occupancy','Room utilization',fi(util(h)*100),'%','occupants ÷ capacity of rooms reporting, '+hh(h),'','SIMULATED')+kpi('consolidation','RoomWise Savings',fi(I.kwh),'kWh/day',f1(I.pct)+'% vs baseline · ₹'+fi(I.inr)+' · '+fi(I.co2)+' kg CO₂ (modeled)','hi','ESTIMATED')+'</div>'+
+const critAlert = state.activeAlerts ? state.activeAlerts.find(a => a.status === 'ACTIVE') : null;
+return head('Building Overview','Monitor occupancy, understand energy demand, and explore smarter ways to operate your building.')+
+(critAlert ? 
+  '<div style="background:rgba(242,85,90,.18);border:1px solid var(--crit);border-radius:14px;padding:14px 18px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
+    '<div style="display:flex;align-items:center;gap:10px">' +
+      '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--crit);animation:alertPulse 1.2s infinite"></span>' +
+      '<div>' +
+        '<b style="color:var(--crit);font-size:14px">ACTIVE HIGH-RISK HAZARD: ' + critAlert.title + '</b>' +
+        '<div class="mu" style="font-size:12px">' + critAlert.description + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px">' +
+      '<button class="btn ok" data-a="execute-alert" data-v="' + critAlert.id + '">⚡ Execute Containment</button>' +
+      '<button class="btn ghost" data-a="go" data-v="safety">View in Safety Center →</button>' +
+    '</div>' +
+  '</div>' : ''
+)+
+'<div class="g4">'+kpi('energy','Power demand',f1(t[h]),'kW',hh(h)+' · '+n+' · peak '+f1(Math.max(...t))+' kW','','ESTIMATED')+kpi('energy','Energy · typical weekday',fi(sum(t)),'kWh',n+' · baseline '+fi(sum(b))+' kWh · ₹'+fi(sum(t)*TAR)+' · '+fi(sum(t)*EF)+' kg CO₂','','ESTIMATED')+kpi('occupancy','Room utilization',fi(util(h)*100),'%','occupants ÷ capacity of rooms reporting, '+hh(h),'','SIMULATED')+kpi('consolidation','RoomWise Savings',fi(I.kwh),'kWh/day',f1(I.pct)+'% vs baseline · ₹'+fi(I.inr)+' · '+fi(I.co2)+' kg CO₂ (modeled)','hi','ESTIMATED')+'</div>'+
 '<div class="row"><button class="card prev" data-a="go" data-v="twin"><span class="lb">Digital twin · '+n+' · '+hh(h)+'</span>'+iso3d(1)+'<span class="sb">Open the interactive twin →</span></button><div class="card"><span class="lb">Hourly demand (kW)</span>'+chart('ov',[{n:'Baseline',d:b,c:CAT.base},{n:'Optimized',d:ser(O),c:CAT.opt}],occS(),520,250)+LG(1)+'</div></div>'+
-'<div class="row eq"><div class="card"><span class="lb">Optimization opportunities</span>'+REC.filter(c=>state.rs[c.id]!='dis').slice(0,3).map(c=>'<button class="op" data-a="go" data-v="advisor"><span style="color:var(--white);font-weight:400">'+c.title+'</span><span>−'+f1(c.imp.kwh)+' kWh/day</span></button>').join('')+'</div><div class="card"><span class="lb">Alert summary · '+hh(h)+'</span><p>'+fl.length+' space(s) with low occupancy and elevated modeled HVAC'+(fl.length?': '+fl.map(r=>r.id).join(', '):'')+'.</p><p>'+off.length+' occupancy sensor offline ('+off.map(r=>r.id).join(', ')+') — no control is modeled there.</p><div style="display:flex;gap:8px;margin-top:10px"><button class="btn ghost" data-a="alerts">Show in twin</button><button class="btn" data-a="go" data-v="consolidation">Run RoomWise Consolidation</button></div></div></div>'+
+'<div class="row eq"><div class="card"><span class="lb">Optimization opportunities</span>'+REC.filter(c=>state.rs[c.id]!='dis').slice(0,3).map(c=>'<button class="op" data-a="go" data-v="advisor"><span style="color:var(--white);font-weight:400">'+c.title+'</span><span>−'+f1(c.imp.kwh)+' kWh/day</span></button>').join('')+'</div><div class="card"><span class="lb">Safety & Alert summary · '+hh(h)+'</span><p>'+(state.activeAlerts&&state.activeAlerts.length?('<b style="color:var(--crit)">⚠ '+state.activeAlerts.length+' active hazard alert(s) requiring attention!</b>'):'<span style="color:var(--ok)">✓ All safety guardrails clear.</span>')+'</p><p>'+fl.length+' space(s) with low occupancy and elevated modeled HVAC'+(fl.length?': '+fl.map(r=>r.id).join(', '):'')+'.</p><p>'+off.length+' occupancy sensor offline ('+off.map(r=>r.id).join(', ')+') — no control is modeled there.</p><div style="display:flex;gap:8px;margin-top:10px"><button class="btn" data-a="go" data-v="safety">Open Safety Center</button><button class="btn ghost" data-a="alerts">Show in twin</button></div></div></div>'+
 '<div style="margin-top:20px;padding:12px;border-radius:12px;background:rgba(22,19,22,.5);font-size:11px;color:var(--gray);border:1px solid var(--line);display:flex;justify-content:space-between;align-items:center"><span>🔒 Privacy Policy: Camera inference processed locally on CPU/GPU. Zero video or raw image persistence. Counts only.</span><a href="'+API_BASE+'/docs" target="_blank" style="color:var(--orange);text-decoration:none">Interactive API Docs (/docs) ↗</a></div>'}
 
 function vOcc(){const S=SC(),h=state.hour,f=state.floor,r=R.find(x=>x.id==state.room),oc=occS(0),I=imp(sim({...P0,oh:new Set(R.map(x=>x.id)),ol:new Set(R.map(x=>x.id))}),BASE),used=R.filter(x=>OCC[x.id][h]>0).length;
@@ -242,6 +304,12 @@ function vVis(){
             '</div>'
           )+
         '</div>'+
+        (count > 60 ?
+          '<div style="background:rgba(242,85,90,.2);border:1px solid var(--crit);border-radius:10px;padding:10px 14px;margin-top:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+            '<span style="color:var(--crit);font-weight:600">⚠ CRITICAL ROOM OVERCROWDING: ' + count + '/60 occupants (' + Math.round((count/60)*100) + '% capacity). Structural fire-safety limit breached!</span>' +
+            '<button class="btn ok" data-a="go" data-v="safety" style="padding:6px 12px;font-size:11px">⚡ Execute Containment Policy →</button>' +
+          '</div>' : ''
+        )+
         '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:14px">'+
           '<div style="display:flex;gap:8px;align-items:center">'+
             '<span class="mu" style="font-size:12px">Test Count:</span>'+
@@ -554,12 +622,118 @@ function vAd(){
     REC.map(card).join('');
 }
 
-const VIEWS={overview:vOv,occupancy:vOcc,vision:vVis,consolidation:vCon,timetable:vTt,twin:vTw,energy:vEn,advisor:vAd};
+function vSafety(){
+  const alerts = state.activeAlerts || [];
+  const summary = state.alertSummary || { total_active: 0, critical_count: 0, high_count: 0, auto_execute_enabled: false };
+  const autoExec = summary.auto_execute_enabled;
+  
+  return head('High-Risk Alert & Automated Action System', 'Real-time hazard detection with pre-staged autonomous containment policies and audited facility safeguards.') +
+    '<div class="g4">' +
+      kpi('safety', 'Active Hazards', summary.total_active, 'alerts', (summary.critical_count + ' Critical · ' + summary.high_count + ' High Priority'), summary.total_active > 0 ? 'hi' : '', 'ACTUAL') +
+      kpi('safety', 'Containment Mode', autoExec ? 'AUTONOMOUS' : 'SUPERVISED', '', autoExec ? 'Auto-Executes Pre-Approved Actions' : '1-Click Facility Approval Guardrail', '', 'SYSTEM') +
+      kpi('safety', 'Room Overcrowding Cap', '100', '% max', 'Auto-locks bookings, dispatches stewards', '', 'SAFETY') +
+      kpi('safety', 'Substation Peak Limit', '95.0', 'kW', 'Auto-sheds HVAC to 35% ventilation floor', '', 'ESTIMATED') +
+    '</div>' +
+    
+    '<div class="card" style="margin-top:14px;background:rgba(22,19,22,.65)">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">' +
+        '<div>' +
+          '<b>Containment Execution Policy & Safety Controls</b>' +
+          '<div class="mu" style="font-size:12px;margin-top:2px">Configure autonomous response vs mandatory manual confirmation before dispatching containment.</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:10px;align-items:center">' +
+          '<label class="ck" style="font-weight:600;font-size:13px">' +
+            '<input type="checkbox" data-i="toggle-auto-execute" ' + (autoExec ? 'checked' : '') + '>' +
+            'Autonomous Policy Guardrails (Auto-Execute Pre-Approved Actions)' +
+          '</label>' +
+          '<button class="btn ghost" data-a="scan-risks">Scan Facility Now</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    
+    '<div style="margin-top:16px">' +
+      '<h3 style="margin-bottom:12px">Active Facility Hazard Alerts & Pre-Staged Actions</h3>' +
+      (alerts.length ? 
+        '<div style="display:grid;gap:14px">' +
+          alerts.map(function(alt) {
+            const isCrit = alt.severity === 'CRITICAL';
+            const isActioned = alt.status === 'ACTIONED' || alt.action_status === 'EXECUTED';
+            const cardClass = isActioned ? 'alert-done' : (isCrit ? 'alert-crit' : 'alert-high');
+            const sevBadge = isCrit ? 'badge-crit' : 'badge-high';
+            
+            return '<div class="card ' + cardClass + '">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">' +
+                '<div style="display:flex;gap:8px;align-items:center">' +
+                  '<span class="badge ' + sevBadge + '">' + alt.severity + '</span>' +
+                  '<span style="font-weight:700;font-size:15px;color:var(--white)">' + alt.title + '</span>' +
+                  '<span class="mu" style="font-size:11px">[' + alt.id + ' · ' + (alt.timestamp ? alt.timestamp.slice(11,19) : '') + ']</span>' +
+                '</div>' +
+                '<div>' +
+                  '<span class="badge badge-act">' + (alt.provenance || 'ACTUAL') + '</span>' +
+                  (isActioned ? '<span class="badge badge-actioned" style="margin-left:6px">CONTAINED</span>' : '<span class="badge badge-crit" style="margin-left:6px">PENDING CONTAINMENT</span>') +
+                '</div>' +
+              '</div>' +
+              
+              '<p style="margin:4px 0 12px;font-size:13px;color:var(--white)">' + alt.description + '</p>' +
+              
+              '<div style="background:rgba(22,19,22,0.7);border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:10px">' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">' +
+                  '<b style="color:var(--orange);font-size:13px">⚡ PRE-STAGED IMMEDIATE CONTAINMENT POLICY: ' + alt.action_title + '</b>' +
+                  '<span class="chip" style="font-size:10px;padding:2px 8px">' + alt.action_type + '</span>' +
+                '</div>' +
+                '<p style="margin:0 0 10px;font-size:12px;color:var(--gray)">' + alt.action_details + '</p>' +
+                
+                (isActioned ?
+                  '<div style="background:rgba(76,195,138,0.12);border:1px solid var(--ok);color:var(--ok);padding:8px 12px;border-radius:8px;font-size:12px">' +
+                    '<b>✓ Containment Successfully Executed:</b> ' + (alt.execution_log || 'Action applied by safety policy engine.') +
+                    '<small style="display:block;color:var(--gray);margin-top:2px">Timestamp: ' + (alt.executed_at || 'Just now') + ' · Actor: ' + (alt.auto_executed ? 'AUTONOMOUS_POLICY' : 'Facility Director') + '</small>' +
+                  '</div>' :
+                  '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">' +
+                    '<button class="btn ok" data-a="execute-alert" data-v="' + alt.id + '">⚡ Execute Pre-Staged Containment Action</button>' +
+                    '<button class="btn ghost" data-a="dismiss-alert" data-v="' + alt.id + '">Dismiss Alert</button>' +
+                  '</div>'
+                ) +
+              '</div>' +
+            '</div>';
+          }).join('') +
+        '</div>' :
+        '<div class="card" style="text-align:center;padding:36px 20px">' +
+          '<div style="font-size:38px;margin-bottom:8px">🛡️</div>' +
+          '<h3 style="color:var(--ok);margin-bottom:6px">All Building Safety Guardrails Normal</h3>' +
+          '<p class="mu" style="max-width:55ch;margin:0 auto">Zero active room overcrowding, substation peak power breach, or telemetry blackouts detected across all 12 zones.</p>' +
+        '</div>'
+      ) +
+    '</div>' +
+    
+    '<div class="card" style="margin-top:16px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">' +
+        '<div>' +
+          '<h3>High-Risk Simulation & Emergency Drills <small>Testing Center</small></h3>' +
+          '<span class="mu">Inject realistic edge hazards on demand to test the alert HUD, WebSocket broadcast, and automated containment policies.</span>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
+        '<button class="btn ghost" data-a="sim-incident" data-v="overcrowding">🚨 Simulate Overcrowding (74 in Room 202)</button>' +
+        '<button class="btn ghost" data-a="sim-incident" data-v="peak_overload">⚡ Simulate Substation Surge (108 kW)</button>' +
+        '<button class="btn ghost" data-a="sim-incident" data-v="sensor_blackout">📡 Simulate Sensor Blackout (Room 102)</button>' +
+        '<button class="btn ghost" data-a="sim-incident" data-v="thermal_waste">❄ Simulate Ghost HVAC Runaway</button>' +
+      '</div>' +
+      '<div style="margin-top:12px;font-size:11px;color:var(--gray)">' +
+        'Notice: Automated actions operate within software containment guardrails (lock timetable schedules, dispatch security stewarding tickets, modulate ventilation floors, and step down peak loads). No unverified high-voltage physical hardware is actuated.' +
+      '</div>' +
+    '</div>';
+}
+
+const VIEWS={overview:vOv,occupancy:vOcc,vision:vVis,consolidation:vCon,timetable:vTt,twin:vTw,energy:vEn,advisor:vAd,safety:vSafety};
 
 function render(){
   const sc=lastS!=state.scen;
+  const actCount = state.alertSummary ? (state.alertSummary.total_active || 0) : 0;
   $('#app').innerHTML='<div class="shell"><nav class="side" aria-label="Main"><div class="logo">VERD<em>ant</em></div>'+
-    NAV.map(([k,n,s,p])=>'<button class="nav '+(state.view==k?'on':'')+'" data-a="go" data-v="'+k+'"><svg viewBox="0 0 24 24"><path d="'+p+'"/></svg><span class="lgf">'+n+'</span><span class="sm">'+s+'</span></button>').join('')+
+    NAV.map(([k,n,s,p])=>{
+      const badge = (k==='safety' && actCount > 0) ? '<span class="badge badge-crit" style="margin-left:auto;padding:2px 6px;border-radius:999px">'+actCount+'</span>' : '';
+      return '<button class="nav '+(state.view==k?'on':'')+'" data-a="go" data-v="'+k+'"><svg viewBox="0 0 24 24"><path d="'+p+'"/></svg><span class="lgf">'+n+'</span>'+badge+'<span class="sm">'+s+'</span></button>';
+    }).join('')+
     '</nav><main class="main">'+tbar()+'<div class="view '+(last!=state.view?'in ':'')+(sc&&last==state.view?'sw':'')+'">'+VIEWS[state.view]()+'</div></main></div>';
   last=state.view;lastS=state.scen;
 }
@@ -1064,10 +1238,13 @@ document.addEventListener('click',async e=>{
   }
   else if(a=='nudge-count'){
     const h = state.hour;
-    OCC['202'][h] = Math.max(0, Math.min(60, (OCC['202'][h]||24) + (+v)));
+    OCC['202'][h] = Math.max(0, Math.min(100, (OCC['202'][h]||24) + (+v)));
     const el = document.querySelector('[data-live="cv-count"]');
     if(el) el.innerText = OCC['202'][h];
     partial();
+    if(OCC['202'][h] > 60 || (OCC['202'][h] <= 60 && OCC['202'][h] >= 55)){
+      render();
+    }
   }
   else if(a=='push-ingest'){
     try {
@@ -1085,7 +1262,61 @@ document.addEventListener('click',async e=>{
       });
       if(res.ok){
         addCvLog('Manual Push: Room 202 updated with '+count+' people in view [ACTUAL]', 'var(--ok)');
-        alert('Camera detection ingested! Room 202 updated with '+count+' people [ACTUAL].');
+        if(count > 60){
+          addCvLog('CRITICAL RISK TRIGGERED: Overcrowding hazard created in Room 202!', 'var(--crit)');
+        }
+        await syncAlerts();
+        render();
+        alert('Camera detection ingested! Room 202 updated with '+count+' people [ACTUAL].' + (count > 60 ? '\n\n⚠ CRITICAL OVERCROWDING RISK DETECTED! Check Safety Center.' : ''));
+      }
+    } catch(err){}
+  }
+  else if(a=='execute-alert'){
+    try {
+      t.innerText = 'Executing...';
+      const res = await fetch(API_BASE+'/alerts/'+v+'/execute', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({actor:'Facility Director'})
+      });
+      if(res.ok){
+        const data = await res.json();
+        alert('Automated Containment Policy Executed!\n\n'+data.alert.execution_log);
+        await syncAlerts();
+        render();
+      }
+    } catch(err){}
+  }
+  else if(a=='dismiss-alert'){
+    try {
+      const res = await fetch(API_BASE+'/alerts/'+v+'/dismiss', {method:'POST'});
+      if(res.ok){
+        await syncAlerts();
+        render();
+      }
+    } catch(err){}
+  }
+  else if(a=='sim-incident'){
+    try {
+      t.innerText = 'Triggering...';
+      const res = await fetch(API_BASE+'/alerts/simulate', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({incident_type: v})
+      });
+      if(res.ok){
+        await syncAlerts();
+        render();
+      }
+    } catch(err){}
+  }
+  else if(a=='scan-risks'){
+    try {
+      t.innerText = 'Scanning...';
+      const res = await fetch(API_BASE+'/alerts/scan', {method:'POST'});
+      if(res.ok){
+        await syncAlerts();
+        render();
       }
     } catch(err){}
   }
@@ -1109,7 +1340,31 @@ document.addEventListener('input',e=>{
   else{state.opt[n]=n=='pk'&&v>=62?99:v;O=sim(state.opt);state.scen='opt'}
   partial();
 });
-document.addEventListener('change',e=>{const n=e.target.dataset.i;if(n=='occall'){const s=e.target.checked?R.map(r=>r.id):[];state.opt.oh=new Set(s);state.opt.ol=new Set(s);O=sim(state.opt);state.scen='opt';render()}else if(n=='iso'){state.iso=e.target.checked;render()}});
+document.addEventListener('change',e=>{
+  const n=e.target.dataset.i;
+  if(n=='occall'){
+    const s=e.target.checked?R.map(r=>r.id):[];
+    state.opt.oh=new Set(s);
+    state.opt.ol=new Set(s);
+    O=sim(state.opt);
+    state.scen='opt';
+    render();
+  } else if(n=='iso'){
+    state.iso=e.target.checked;
+    render();
+  } else if(n=='toggle-auto-execute'){
+    fetch(API_BASE+'/alerts/config', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({auto_execute: e.target.checked})
+    }).then(r=>r.json()).then(data=>{
+      if(data && data.config) {
+        state.alertSummary.auto_execute_enabled = data.config.auto_execute;
+      }
+      render();
+    }).catch(err=>{});
+  }
+});
 
 let dr=null;
 document.addEventListener('pointerdown',e=>{const t=e.target.closest('.tw3');if(t&&!t.closest('.prev'))dr={x:e.clientX,r:state.rot,m:0,t:e.target}});
@@ -1124,6 +1379,17 @@ document.addEventListener('pointermove',e=>{
 });
 document.addEventListener('pointerup',()=>{if(dr&&!dr.m){const g=dr.t.closest&&dr.t.closest('[data-room]');if(g){state.room=g.dataset.room;render()}}dr=null});
 document.addEventListener('wheel',e=>{if(e.target.closest&&e.target.closest('.tw3')&&!e.target.closest('.prev')){e.preventDefault();state.zoom=Math.max(.6,Math.min(1.8,state.zoom*(e.deltaY<0?1.08:.93)));partial()}},{passive:false});
+
+async function syncAlerts() {
+  try {
+    const res = await fetch(API_BASE+'/alerts');
+    if(res.ok){
+      const data = await res.json();
+      state.activeAlerts = data.alerts || [];
+      state.alertSummary = data.summary || { total_active: 0, critical_count: 0, high_count: 0, auto_execute_enabled: false };
+    }
+  } catch(err){}
+}
 
 // Connect to Backend WebSocket
 function initWebSocket() {
@@ -1147,6 +1413,19 @@ function initWebSocket() {
               }
             }
           }
+        }
+        if(msg.type === 'risk_alert' || msg.type === 'risk_action_executed' || msg.type === 'risk_alert_dismissed') {
+          syncAlerts().then(() => render());
+        }
+        if(msg.type === 'initial_snapshot' && msg.active_alerts) {
+          state.activeAlerts = msg.active_alerts;
+          state.alertSummary = {
+            total_active: msg.active_alerts.length,
+            critical_count: msg.active_alerts.filter(a=>a.severity==='CRITICAL').length,
+            high_count: msg.active_alerts.filter(a=>a.severity==='HIGH').length,
+            auto_execute_enabled: false
+          };
+          render();
         }
       } catch(err){}
     };
@@ -1185,6 +1464,7 @@ async function initialSync() {
     if(optRes.ok) {
       state.currentPlan = await optRes.json();
     }
+    await syncAlerts();
     render();
   } catch(err) {
     // Offline / direct static mode fallback: already initialized with coherent seeded data
