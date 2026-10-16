@@ -20,6 +20,7 @@ Architecture:
    - Operational commands executed safely via software containment (drills, fault injection, alert resolution).
 4. Local LLM (Ollama llama3.2) with rapid 1.8s timeout and <10ms grounded deterministic fallback.
 """
+import os
 import re
 import json
 import urllib.request
@@ -42,9 +43,9 @@ from backend.services.budget import calculate_energy_budget_status
 from backend.services.scheduling import evaluate_smart_schedule
 from backend.services.twin import simulate_twin_scenario
 
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-OLLAMA_MODEL = "llama3.2"
-OLLAMA_TIMEOUT_SECONDS = 1.8
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2")
+OLLAMA_TIMEOUT_SECONDS = float(os.environ.get("OLLAMA_TIMEOUT", "4.5"))
 
 
 def get_live_system_context() -> Dict[str, Any]:
@@ -319,7 +320,7 @@ def ask_copilot(query: str, history: Optional[List[Dict[str, str]]] = None) -> D
     # 3. Check for specific room queries (e.g. "room 202", "101", "room 303")
     q_lower = query.lower()
     room_match = re.search(r"\b(?:room\s+|space\s+|#)?(101|102|103|104|201|202|203|204|301|302|303|304)\b", q_lower)
-    if room_match and not any(k in q_lower for k in ["why", "tariff", "solar", "budget", "esg", "benchmark"]):
+    if room_match and not any(k in q_lower for k in ["why", "tariff", "solar", "budget", "esg", "benchmark", "privacy", "camera", "video", "how", "what is"]):
         target_room = room_match.group(1)
         ans = _resolve_specific_room_query(target_room, context)
         return {
@@ -331,7 +332,7 @@ def ask_copilot(query: str, history: Optional[List[Dict[str, str]]] = None) -> D
 
     # 4. Check for course lookup (e.g. "HU102", "CS101", "ENV201", "CS201", "ME101")
     course_match = re.search(r"\b(HU102|CS101|ENV201|CS201|CS301|ME101|EE201|EC301|AR101|DS201)\b", query, re.IGNORECASE)
-    if course_match and not ("why" in q_lower and "move" in q_lower):
+    if course_match and not any(k in q_lower for k in ["why", "move", "relocate", "how", "what if"]):
         ans = _resolve_specific_course_query(course_match.group(1))
         return {
             "answer": ans,
@@ -340,12 +341,43 @@ def ask_copilot(query: str, history: Optional[List[Dict[str, str]]] = None) -> D
             "provenance": "ACTUAL"
         }
 
-    # 5. Local GPU Ollama Attempt with strict fast timeout (1.8s)
-    prompt = f"""You are the VERDANT AI Facility Copilot, an expert AI building intelligence assistant.
-Answer the user's question concisely (2-4 sentences max), strictly grounded in the live building facts below.
-Never invent numbers. If explaining moves, tariffs, or savings, reference specific rooms, kW, and constraints.
+    # 5. Format multi-turn conversation history
+    history_str = ""
+    if history:
+        turns = []
+        for h in history[-4:]:
+            role = "Facility Director" if h.get("role") == "user" else "Copilot"
+            content = h.get("content", "").strip()
+            if content:
+                turns.append(f"{role}: {content}")
+        if turns:
+            history_str = "\nRecent Conversation:\n" + "\n".join(turns) + "\n"
 
+    # 6. Local GPU Ollama Attempt (llama3.2 on GPU with snappy 4.5s timeout)
+    system_prompt = f"""You are the VERDANT AI Facility Copilot, an enterprise-grade autonomous building intelligence expert and digital twin assistant for Academic Block A (12 rooms, 3 floors, 1,350 m² GFA, 506 student capacity).
+You have deep engineering expertise across:
+- Indian DISCOM Time-of-Day (ToD) tariffs: ₹5.50 off-peak (22:00–06:00), ₹8.00 normal academic hours, ₹12.50 peak surge (18:00–22:00), ₹350/kVA Maximum Demand Charge (MDC) penalty.
+- Substation peak shaving: 51.0 kW optimized peak vs 95.0 kVA contracted transformer ceiling, eliminating breach penalties.
+- 100 kWp rooftop solar PV + 50 kWh BESS battery storage (459.3 kWh/day, 48.5% self-sufficiency, grid export at ₹3.50/kWh, peak arbitrage).
+- Room consolidation & mathematical optimization: dual engine with high-speed greedy heuristic and exact MILP solver using 1.0*d_kWh - 1.5*Disruption objective function.
+- Microclimate thermodynamics & diurnal pre-cooling: 36.8°C outdoor diurnal peak, 840 W/m² solar insolation, coasting through afternoon heatwaves via 05:00–07:00 thermal mass pre-cooling.
+- Thermal comfort & IAQ: ASHRAE Standard 55 Class B (PMV -0.16, PPD 5.6%) and ASHRAE 62.1 35% minimum fresh-air damper floors (45.0 L/s min) keeping CO2 below 850 ppm.
+- Ephemeral camera privacy in Room 202: YOLOv8 Class 0 person-counting executed strictly in volatile RAM, zero images or video written to disk or network (GDPR and FERPA compliant).
+- IoT multi-sensor fleet: 12 sensor nodes streaming Modbus TCP, BACnet/IP, MQTT, LoRaWAN, BLE with automatic fallback to timetable schedule if a sensor goes offline.
+- Predictive Maintenance: Weibull bathtub failure curves, equipment health scoring (0-100), days-to-failure projections (AHU-Floor2 / Room 303 scheduled next).
+- Statistical Anomaly Radar: Z-scores (>2.5σ), IQR bounds, ghost occupancy screening between 02:00–04:00.
+- ESG Reporting: GHG Protocol Corporate Standard Scopes 1, 2, and 3 emissions, Net-Zero 2030 milestone trajectory.
+- Benchmarking: 78.4 kWh/m²/yr EUI, BEE 5-Star Commercial Building Energy Rating, SuperECBC Net-Zero Ready.
+- Financials: Monthly utility budget pacing, ₹76,583 projected EOM surplus, 50% allocated to campus Green Reinvestment Fund.
+- Competitive positioning against Siemens Navigator, Honeywell Forge, JLL Hank, Johnson Controls OpenBlue: open REST APIs, edge-native privacy, local LLM, zero vendor lock-in.
+
+LIVE TELEMETRY SNAPSHOT:
 {summary_text}
+{history_str}
+INSTRUCTIONS:
+Answer the question authoritatively, insightfully, and concisely (2 to 4 sentences max).
+Strictly cite real numbers from the telemetry snapshot where applicable.
+If asked general questions about building physics, HVAC engineering, machine learning, or sustainability, provide an intelligent, expert response.
 
 User Question: {query}
 Copilot Answer:"""
@@ -353,9 +385,9 @@ Copilot Answer:"""
     try:
         req_data = json.dumps({
             "model": OLLAMA_MODEL,
-            "prompt": prompt,
+            "prompt": system_prompt,
             "stream": False,
-            "options": {"temperature": 0.2, "num_predict": 180}
+            "options": {"temperature": 0.2, "num_predict": 220}
         }).encode("utf-8")
 
         req = urllib.request.Request(OLLAMA_URL, data=req_data, headers={"Content-Type": "application/json"})
@@ -372,36 +404,117 @@ Copilot Answer:"""
     except Exception:
         pass
 
-    # 6. Deep Domain-Specific Grounded Deterministic Engine (< 5ms response)
+    # 7. Comprehensive 24-Domain Grounded Knowledge Base Fallback (< 5ms response)
     if "why" in q_lower and ("202" in q_lower or "move" in q_lower or "relocate" in q_lower or "consolidat" in q_lower):
         ans = (
             "Seminar Hall (202) is consolidated because actual camera-verified attendance for HU102 is only 22 students out of 60 seats. "
             "Moving it to Classroom 201 (capacity 50) fulfills all AV and accessibility requirements while allowing Room 202 to stay completely powered down, "
             "saving 4.5 kW HVAC and 1.0 kW lighting (5.5 kW total) and avoiding ₹840+ in daily electricity costs."
         )
-    elif "solar" in q_lower or "pv" in q_lower or "bess" in q_lower or "battery" in q_lower:
-        s = context["solar"]["daily"]
+    elif any(k in q_lower for k in ["privacy", "camera", "video", "yolo", "vision", "surveillance", "gdpr", "ferpa", "cctv"]):
         ans = (
-            f"The 100 kWp rooftop solar PV installation generates **{s['pv_generated_kwh']} kWh/day** of clean electricity, paired with a 50 kWh BESS battery storage unit. "
-            f"The facility achieves a **{s['self_sufficiency_pct']}% solar self-sufficiency** rate, avoids **{s['co2_avoided_kg']} kg CO₂/day**, "
-            f"and exports {s['export_kwh']} kWh to the grid at ₹3.50/kWh while discharging during evening peak ToD hours."
+            "In Room 202, people counting is performed at the edge using YOLOv8 Class 0 (person). To guarantee absolute student privacy, "
+            "inference executes strictly in volatile RAM. No video streams or frame captures are ever persisted to disk or transmitted across "
+            "the network, ensuring 100% compliance with GDPR, FERPA, and institutional privacy policies."
         )
-    elif "anomal" in q_lower or "outlier" in q_lower or "spike" in q_lower or "ghost" in q_lower:
+    elif any(k in q_lower for k in ["physics", "digital twin", "simulation", "1r1c", "thermal model", "how it works"]):
+        ans = (
+            "VERDANT models Academic Block A using a 1R1C lumped capacitance thermal network combined with internal occupant metabolic heat gains "
+            "(70W sensible, 45W latent per person) and solar radiation through double-glazed low-e fenestration. The energy model computes real-time "
+            "lighting, HVAC, and plug loads with zero missing data."
+        )
+    elif any(k in q_lower for k in ["solver", "algorithm", "milp", "heuristic", "exact", "disruption", "tradeoff", "objective"]):
+        ans = (
+            "VERDANT uses a dual-engine consolidation architecture: a sub-5ms greedy heuristic for instantaneous recommendations and an exact "
+            "Mixed-Integer Linear Programming (MILP via PuLP/CBC) solver. The objective function 1.0·ΔkWh - 1.5·Disruption balances energy savings "
+            "against faculty movement friction, enforcing zero capacity, equipment, or accessibility breaches."
+        )
+    elif any(k in q_lower for k in ["sensor", "protocol", "iot", "modbus", "bacnet", "lora", "ble", "mqtt", "fleet"]):
+        ans = (
+            "All 12 zones feature IoT multi-sensor nodes streaming via Modbus TCP, BACnet/IP, MQTT, LoRaWAN, and BLE with sub-15ms packet latency. "
+            "If any sensor experiences packet loss or drops offline, the system automatically triggers an automated failover to the registered academic timetable schedule."
+        )
+    elif any(k in q_lower for k in ["honeywell", "siemens", "hank", "openblue", "competitor", "comparison", "versus", "vs"]):
+        ans = (
+            "Compared to closed, legacy platforms like Siemens Navigator, Honeywell Forge, and Johnson Controls OpenBlue, VERDANT delivers "
+            "edge-native YOLOv8 camera privacy without cloud video egress, sub-30ms open REST APIs, bidirectional NLP operational command execution, "
+            "and deep Time-of-Day (ToD) tariff optimization with zero vendor lock-in."
+        )
+    elif any(k in q_lower for k in ["fanger", "pmv", "ppd", "met", "clo", "thermal comfort"]):
+        ans = (
+            "Thermal comfort is evaluated using Fanger's 1970 PMV/PPD formulation calibrated for educational spaces (metabolic rate 1.2 met for sedentary study, "
+            "clothing insulation 0.6 clo for summer academic wear). The campus mean PMV is -0.16 with a Predicted Percentage Dissatisfied (PPD) of 5.6%, "
+            "strictly compliant with ASHRAE 55 Class B."
+        )
+    elif any(k in q_lower for k in ["damper", "ventilation", "fresh air", "outdoor air", "air change", "ach"]):
+        ans = (
+            "To prevent cognitive fatigue and drowsiness, VERDANT enforces an ASHRAE 62.1 minimum ventilation floor of 35% outdoor air damper opening "
+            "(45.0 L/s min) across all 12 zones. During exam sessions or student surges, dampers modulate to 100% fresh air to keep CO₂ concentrations safely below 850 ppm."
+        )
+    elif any(k in q_lower for k in ["gfa", "gross floor", "area", "sqm", "size", "capacity", "seats", "how big", "how many students"]):
+        ans = (
+            "Academic Block A comprises 1,350 m² Gross Floor Area (GFA) across 3 floors with 12 distinct academic zones (lecture halls, labs, seminar spaces, "
+            "classrooms, and faculty lounges). The total student seating capacity is 506 students."
+        )
+    elif any(k in q_lower for k in ["bess", "battery", "charge", "discharge", "storage", "lifepo4"]):
+        ans = (
+            "The 50 kWh Lithium Iron Phosphate (LiFePO4) BESS operates on an automated peak-arbitrage cycle: it charges at noon using excess rooftop solar (459.3 kWh/day) "
+            "that would otherwise be exported at ₹3.50/kWh, and discharges during the 18:00–22:00 evening peak tariff window (₹12.50/kWh) to eliminate grid surcharges."
+        )
+    elif any(k in q_lower for k in ["reinvest", "green fund", "fund", "budget", "burn", "spend", "financial", "surplus"]):
+        bg = context["budget"]
+        ans = (
+            f"For {bg['budget_period']}, the campus utility spend is pacing at ₹{bg['mtd_actuals']['optimized_inr']:,} against the monthly ceiling of "
+            f"₹{bg['monthly_targets']['budget_inr']:,}. Projected end-of-month surplus is **₹{bg['variance']['surplus_deficit_inr']:,}**, with "
+            f"₹{bg['green_fund_allocation']['reinvestment_surplus_inr']:,} designated for the campus green reinvestment fund for rooftop solar expansion."
+        )
+    elif any(k in q_lower for k in ["weibull", "bathtub", "degradation", "maintenance", "failure", "equipment", "bearing", "vibration"]):
+        m = context["maintenance"]
+        next_rec = m.get("next_recommended")
+        next_str = f"Next scheduled service: Room {next_rec['room_id']} ({next_rec['days_to_failure']} days to failure)." if next_rec else "All units operating stably."
+        ans = (
+            f"Predictive maintenance models 3-stage Weibull bathtub failure curves across all 12 zones, with a campus fleet health score of **{m['fleet_health_score']}/100**. "
+            f"There are **{m['critical_count']} critical** and **{m['warning_count']} scheduled** maintenance tickets. {next_str}"
+        )
+    elif any(k in q_lower for k in ["anomal", "outlier", "spike", "ghost", "leak", "z-score", "iqr"]):
         an = context["anomalies"]
         ans = (
             f"Our statistical anomaly radar screens hourly energy and occupancy using Z-scores (>2.5σ) and IQR bounds. "
             f"Currently, there are **{an['total_anomalies']} active anomalies** ({an['high_severity']} high severity), with an overall health score of **{an['health_score']}/100**. "
             "Ghost occupancy surveillance confirmed zero unauthorized night presence between 02:00–04:00."
         )
-    elif "maintenance" in q_lower or "failure" in q_lower or "equipment" in q_lower or "degrad" in q_lower:
-        m = context["maintenance"]
-        next_rec = m.get("next_recommended")
-        next_str = f"Next scheduled service: Room {next_rec['room_id']} ({next_rec['days_to_failure']} days to failure)." if next_rec else "All units operating stably."
+    elif any(k in q_lower for k in ["holt", "forecast", "prediction", "smoothing", "future"]):
         ans = (
-            f"Predictive maintenance models bathtub failure curves across all 12 zones, with a campus fleet health score of **{m['fleet_health_score']}/100**. "
-            f"There are **{m['critical_count']} critical** and **{m['warning_count']} scheduled** maintenance tickets. {next_str}"
+            "Occupancy and demand forecasting uses Holt's double-exponential smoothing (smoothing parameter α=0.4, trend parameter β=0.2). "
+            "The engine projects hourly load curves 24 hours in advance with 85% confidence intervals, enabling predictive pre-cooling hours before external heatwaves arrive."
         )
-    elif "esg" in q_lower or "scope" in q_lower or "ghg" in q_lower or "carbon" in q_lower or "emission" in q_lower:
+    elif any(k in q_lower for k in ["instructor", "faculty", "professor", "travel", "continuity", "clash"]):
+        ans = (
+            "RoomWise consolidation enforces hard instructor continuity constraints: professors are never assigned simultaneous classes, consecutive lectures "
+            "maintain travel times with zero inter-building floor jumps > 1, and department-preferred room affinities are preserved."
+        )
+    elif any(k in q_lower for k in ["substation", "peak load", "demand limit", "transformer", "peak draw", "kva"]):
+        sim_data = simulate_twin_scenario()
+        opt_peak = sim_data["optimized"]["peak_kw"]
+        base_peak = sim_data["baseline"]["peak_kw"]
+        ans = (
+            f"The building's optimized peak electrical demand is **{opt_peak} kW** (shaved down from the baseline peak of **{base_peak} kW**). "
+            f"Our contracted substation transformer ceiling is **95.0 kW** (95.0 kVA at 0.95 PF). "
+            f"Because RoomWise peak shaving keeps our maximum draw safely below 95.0 kVA, the campus incurs **₹0 demand penalty charges** (avoiding the ₹350/kVA breach penalty)."
+        )
+    elif any(k in q_lower for k in ["tariff", "cost", "tod", "penalty", "discom", "rate"]):
+        ans = (
+            "We model commercial Time-of-Day (ToD) tariffs: **₹5.50/kWh off-peak** (22:00–06:00), **₹8.00/kWh normal** academic hours, and **₹12.50/kWh peak surge** (18:00–22:00). "
+            "Exceeding our 95.0 kVA contracted peak incurs a ₹350/kVA penalty. RoomWise peak shaving saves ₹735/day and eliminates all demand charges."
+        )
+    elif any(k in q_lower for k in ["solar", "pv", "sun", "generation", "photovoltaic"]):
+        s = context["solar"]["daily"]
+        ans = (
+            f"The 100 kWp rooftop solar PV installation generates **{s['pv_generated_kwh']} kWh/day** of clean electricity, paired with a 50 kWh BESS battery storage unit. "
+            f"The facility achieves a **{s['self_sufficiency_pct']}% solar self-sufficiency** rate, avoids **{s['co2_avoided_kg']} kg CO₂/day**, "
+            f"and exports {s['export_kwh']} kWh to the grid at ₹3.50/kWh while discharging during evening peak ToD hours."
+        )
+    elif any(k in q_lower for k in ["esg", "scope", "ghg", "carbon", "emission", "net-zero", "2030"]):
         sim_data = simulate_twin_scenario()
         solar_data = get_solar_profile(sim_data["optimized"]["hourly_kw"])
         esg = calculate_campus_ghg_inventory(sim_data["optimized"]["hourly_kw"], solar_generated_kwh=solar_data["daily"]["pv_generated_kwh"])
@@ -412,21 +525,14 @@ Copilot Answer:"""
             f"- **Scope 3 (Value Chain)**: {esg['scope_3']['daily_kg_co2e']} kg (student commuting, water pumping, solid waste)\n"
             f"Campus decarbonization progress is currently at **{esg['summary']['net_zero_progress_pct']}%** toward the 2030 Net-Zero target."
         )
-    elif "benchmark" in q_lower or "eui" in q_lower or "bee" in q_lower or "rating" in q_lower or "ecbc" in q_lower:
+    elif any(k in q_lower for k in ["benchmark", "eui", "bee", "rating", "ecbc", "star"]):
         bm = context["benchmarking"]
         ans = (
             f"Academic Block A has an Energy Use Intensity (EUI) of **{bm['eui']['optimized_kwh_m2_yr']} kWh/m²/year**, "
             f"qualifying for a **BEE {bm['certifications']['bee_star_rating']}-Star Energy Rating** and achieving **{bm['certifications']['ecbc_tier']}** compliance. "
             f"This places the facility in the **{bm['national_standing']['campus_percentile']}** of green educational campuses nationally (37.3% lower than the ASHRAE 90.1 standard)."
         )
-    elif "budget" in q_lower or "burn" in q_lower or "spend" in q_lower or "financial" in q_lower or "inr" in q_lower:
-        bg = context["budget"]
-        ans = (
-            f"For {bg['budget_period']}, the campus has consumed **{bg['mtd_actuals']['optimized_kwh']:,} kWh** costing **₹{bg['mtd_actuals']['optimized_inr']:,}** (Day {bg['day_of_month']} of {bg['days_in_month']}). "
-            f"Pacing velocity is **{bg['mtd_actuals']['pacing_pct']}%** against the monthly ceiling of ₹{bg['monthly_targets']['budget_inr']:,}. "
-            f"Projected end-of-month surplus is **₹{bg['variance']['surplus_deficit_inr']:,}** ({bg['variance']['status']}), with ₹{bg['green_fund_allocation']['reinvestment_surplus_inr']:,} designated for the campus green reinvestment fund."
-        )
-    elif "schedule" in q_lower or "shift" in q_lower or "class" in q_lower or "timetable" in q_lower or "lecture" in q_lower:
+    elif any(k in q_lower for k in ["schedule", "shift", "class", "timetable", "lecture"]):
         sc = context["scheduling"]
         top = sc.get("top_recommendations", [])
         top_str = f"Top recommendation: Shift {top[0]['course_code']} ({top[0]['course_name']}) from {top[0]['current_slot']} to solar peak hours, saving ₹{top[0]['monthly_savings_inr']:,}/month." if top else "Timetable is well-aligned with solar generation."
@@ -435,41 +541,27 @@ Copilot Answer:"""
             f"Found **{sc['session_distribution']['peak_tariff_sessions']} sessions** scheduled during expensive peak ToD tariffs (₹12.50/kWh). "
             f"Potential monthly savings: **₹{sc['potential_monthly_savings_inr']:,}/month**. {top_str}"
         )
-    elif any(k in q_lower for k in ["substation", "peak load", "demand limit", "transformer", "peak draw"]):
-        sim_data = simulate_twin_scenario()
-        opt_peak = sim_data["optimized"]["peak_kw"]
-        base_peak = sim_data["baseline"]["peak_kw"]
+    elif any(k in q_lower for k in ["weather", "heat", "precool", "temperature", "diurnal", "inertia"]):
         ans = (
-            f"The building's optimized peak electrical demand is **{opt_peak} kW** (shaved down from the baseline peak of **{base_peak} kW**). "
-            f"Our contracted substation transformer ceiling is **95.0 kW** (95.0 kVA at 0.95 PF). "
-            f"Because RoomWise peak shaving keeps our maximum draw safely below 95.0 kVA, the campus incurs **₹0 demand penalty charges** (avoiding the ₹350/kVA breach penalty)."
+            "The microclimate engine predicts an outdoor diurnal curve peaking at 36.8°C at 14:00 with 840 W/m² solar insolation. "
+            "We recommend thermal pre-cooling between 05:00 and 07:00 at the cheap ₹5.50/kWh off-peak tariff to coast through afternoon heatwaves and shave 11.5% chiller peak load."
         )
-    elif "tariff" in q_lower or "cost" in q_lower or "tod" in q_lower or "penalty" in q_lower:
+    elif any(k in q_lower for k in ["comfort", "co2", "iaq", "air", "pmv"]):
         ans = (
-            "We model commercial Time-of-Day (ToD) tariffs: **₹5.50/kWh off-peak** (22:00–06:00), **₹8.00/kWh normal** academic hours, and **₹12.50/kWh peak surge** (18:00–22:00). "
-            "Exceeding our 95.0 kVA contracted peak incurs a ₹350/kVA penalty. RoomWise peak shaving saves ₹735/day and eliminates all demand charges."
+            "Thermal comfort strictly satisfies **ASHRAE Standard 55 Class B** (Campus mean PMV -0.16, PPD 5.6%). "
+            "Indoor air quality enforces a 35% minimum fresh-air ventilation floor (45.0 L/s min), maintaining CO₂ safely below 850 ppm across all 12 zones."
         )
-    elif "safety" in q_lower or "risk" in q_lower or "overcrowd" in q_lower or "hazard" in q_lower or "alert" in q_lower:
+    elif any(k in q_lower for k in ["safety", "risk", "overcrowd", "hazard", "alert", "containment", "guardrail"]):
         al = context["active_alerts"]
         crit = sum(1 for a in al if a["severity"] == "CRITICAL")
         ans = (
             f"The Safety Center is actively monitoring 12 zones with **{len(al)} active alerts** ({crit} Critical). "
             "Automated containment policies lock room bookings, step down peak loads to 35% ventilation floors, and dispatch stewards via software guardrails without actuating dangerous physical hardware."
         )
-    elif "comfort" in q_lower or "co2" in q_lower or "iaq" in q_lower or "air" in q_lower or "pmv" in q_lower:
-        ans = (
-            "Thermal comfort strictly satisfies **ASHRAE Standard 55 Class B** (Campus mean PMV -0.16, PPD 5.6%). "
-            "Indoor air quality enforces a 35% minimum fresh-air ventilation floor (45.0 L/s min), maintaining CO₂ safely below 850 ppm across all 12 zones."
-        )
-    elif "weather" in q_lower or "heat" in q_lower or "precool" in q_lower or "temperature" in q_lower:
-        ans = (
-            "The microclimate engine predicts an outdoor diurnal curve peaking at 36.8°C at 14:00 with 840 W/m² solar insolation. "
-            "We recommend thermal pre-cooling between 05:00 and 07:00 at the cheap ₹5.50/kWh off-peak tariff to coast through afternoon heatwaves and shave 11.5% chiller peak load."
-        )
     else:
         ans = (
-            "VERDANT is actively monitoring 12 spaces in Academic Block A. RoomWise consolidation is saving **88.3 kWh/day (17.0%)**, "
-            "Room 202 is streaming live YOLOv8 person counts under strict ephemeral privacy, the 100 kWp rooftop solar array is generating 440 kWh/day, "
+            "VERDANT is actively monitoring 12 spaces in Academic Block A (1,350 m² GFA, 506 student capacity). RoomWise consolidation is saving **88.3 kWh/day (17.0%)**, "
+            "Room 202 is streaming live YOLOv8 person counts under strict ephemeral privacy, the 100 kWp rooftop solar array is generating 459.3 kWh/day, "
             "and all occupied zones comply with ASHRAE 55 and BEE 5-Star efficiency standards."
         )
 
