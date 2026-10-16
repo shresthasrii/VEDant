@@ -1,12 +1,28 @@
 import sqlite3
 import json
 import os
+import shutil
 from pathlib import Path
 from contextlib import contextmanager
 
-DB_DIR = Path(__file__).resolve().parent.parent / "data"
-DB_DIR.mkdir(parents=True, exist_ok=True)
-DB_PATH = DB_DIR / "verdant.db"
+IS_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+
+if IS_VERCEL:
+    # On Vercel serverless functions, root filesystem is read-only.
+    # We copy the bundled, seeded database to /tmp so writes, holds, and WAL journals succeed.
+    TMP_DIR = Path("/tmp/verdant_data")
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
+    DB_PATH = TMP_DIR / "verdant.db"
+    SOURCE_DB = Path(__file__).resolve().parent.parent / "data" / "verdant.db"
+    if not DB_PATH.exists() and SOURCE_DB.exists():
+        try:
+            shutil.copy2(SOURCE_DB, DB_PATH)
+        except Exception:
+            pass
+else:
+    DB_DIR = Path(__file__).resolve().parent.parent / "data"
+    DB_DIR.mkdir(parents=True, exist_ok=True)
+    DB_PATH = DB_DIR / "verdant.db"
 
 @contextmanager
 def get_db():

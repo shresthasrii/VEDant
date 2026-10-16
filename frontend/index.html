@@ -3322,12 +3322,35 @@ async function syncAlerts() {
   } catch(err){}
 }
 
-// Connect to Backend WebSocket
+// Connect to Backend WebSocket with graceful Vercel / Cloud serverless REST fallback
+let wsFailCount = 0;
+let restFallbackActive = false;
+
+function startRestFallback() {
+  if (restFallbackActive) return;
+  restFallbackActive = true;
+  const banner = document.getElementById('conn-banner');
+  if (banner) banner.style.display = 'none';
+  setInterval(() => {
+    syncAlerts().then(() => render()).catch(()=>{});
+    syncTimetable().then(() => render()).catch(()=>{});
+    syncRequests().then(() => render()).catch(()=>{});
+  }, 8000);
+}
+
 function initWebSocket() {
   const banner = document.getElementById('conn-banner');
+  // Auto-detect Vercel serverless environment (WebSockets unavailable on serverless functions)
+  if (window.location.hostname.endsWith('vercel.app')) {
+    startRestFallback();
+    return;
+  }
   try {
     const ws = new WebSocket(WS_URL);
-    ws.onopen = () => { if(banner) banner.style.display = 'none'; };
+    ws.onopen = () => {
+      wsFailCount = 0;
+      if(banner) banner.style.display = 'none';
+    };
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
@@ -3399,12 +3422,17 @@ function initWebSocket() {
       } catch(err){}
     };
     ws.onclose = () => {
+      wsFailCount++;
+      if (wsFailCount >= 3) {
+        startRestFallback();
+        return;
+      }
       if(banner) { banner.style.display = 'block'; banner.innerText = 'Reconnecting to VERDANT backend... Keeping last verified state.'; }
       setTimeout(initWebSocket, 3000);
     };
     ws.onerror = () => { ws.close(); };
   } catch(e) {
-    if(banner) banner.style.display = 'block';
+    startRestFallback();
   }
 }
 
