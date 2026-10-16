@@ -49,8 +49,8 @@ class ClassItem(BaseModel):
 class OccupancyIngest(BaseModel):
     room_id: str
     timestamp: Optional[str] = None
-    count: int
-    confidence: float = 1.0
+    count: int = Field(..., ge=0, description="Person headcount must be non-negative")
+    confidence: float = Field(1.0, ge=0.0, le=1.0)
     source: str = "camera" # 'camera' or 'simulated'
 
 class EnergyBreakdown(BaseModel):

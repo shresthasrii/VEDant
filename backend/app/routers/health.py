@@ -54,6 +54,7 @@ def health_check():
 
     return {
         "status": "healthy" if db_ok else "degraded",
+        "version": "1.0.0",
         "database": {"connected": db_ok, "rooms_loaded": rooms_count},
         "ollama_local_llm": {"available": ollama_ok, "model": "llama3.2"},
         "mode": os.environ.get("MODE", "live"),

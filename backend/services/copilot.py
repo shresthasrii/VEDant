@@ -122,7 +122,7 @@ LIVE BUILDING STATE · ACADEMIC BLOCK A (Time: {now.strftime('%H:%M:%S')}):
 - Facility: 3 Floors, 12 Academic Spaces, 506 student seats, 1,350 m² Gross Floor Area.
 - Current Demand: {sim['optimized']['hourly_kw'][current_hour]} kW (Optimized) vs {sim['baseline']['hourly_kw'][current_hour]} kW (Baseline).
 - Daily Energy Savings: {savings_kwh:.1f} kWh/day ({savings_pct:.1f}% reduction), saving ₹{int(savings_kwh * 8.0):,}/day.
-- RoomWise Moves: Seminar Hall (202) freed 14:00-16:00 (HU102 moved to 201), Classroom 301 freed (ENV201 moved to 101).
+- RoomWise Moves: Seminar Hall (202) freed 14:00-16:00 (Technical Communication HU102 moved to Classroom 201), Classroom 301 freed (Environmental Studies ENV201 moved to 101).
 - Camera Vision: Room 202 has edge YOLOv8 streaming count ({room_details.get('202', {}).get('current_occupancy', 24)} people, ACTUAL provenance). Zero raw video persisted.
 - Solar PV & BESS: 100 kWp rooftop array producing {solar_gen:.1f} kWh/day with 50 kWh battery storage ({solar_self_suff:.1f}% self-sufficiency).
 - Equipment Health: Fleet score {maint_data['fleet_health_score']}/100. Maintenance queue: {maint_data['critical_count']} critical, {maint_data['warning_count']} warning.
@@ -375,17 +375,15 @@ LIVE TELEMETRY SNAPSHOT:
 {summary_text}
 {history_str}
 INSTRUCTIONS:
-Answer the question authoritatively, insightfully, and concisely (2 to 4 sentences max).
+Answer the user's question authoritatively, insightfully, and concisely (2 to 4 sentences max).
 Strictly cite real numbers from the telemetry snapshot where applicable.
-If asked general questions about building physics, HVAC engineering, machine learning, or sustainability, provide an intelligent, expert response.
-
-User Question: {query}
-Copilot Answer:"""
+If asked general questions about building physics, HVAC engineering, machine learning, or sustainability, provide an intelligent, expert response."""
 
     try:
         req_data = json.dumps({
             "model": OLLAMA_MODEL,
-            "prompt": system_prompt,
+            "system": system_prompt,
+            "prompt": query,
             "stream": False,
             "options": {"temperature": 0.2, "num_predict": 220}
         }).encode("utf-8")
@@ -394,7 +392,7 @@ Copilot Answer:"""
         with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT_SECONDS) as response:
             res_json = json.loads(response.read().decode("utf-8"))
             answer = res_json.get("response", "").strip()
-            if answer:
+            if answer and not any(bad in answer.lower() for bad in ["question is not provided", "please provide the question", "cannot answer without a question"]):
                 return {
                     "answer": answer,
                     "reply": answer,
@@ -405,9 +403,9 @@ Copilot Answer:"""
         pass
 
     # 7. Comprehensive 24-Domain Grounded Knowledge Base Fallback (< 5ms response)
-    if "why" in q_lower and ("202" in q_lower or "move" in q_lower or "relocate" in q_lower or "consolidat" in q_lower):
+    if ("why" in q_lower or "explain" in q_lower or "reason" in q_lower) and any(k in q_lower for k in ["202", "move", "relocate", "consolidat", "communication", "hu102"]):
         ans = (
-            "Seminar Hall (202) is consolidated because actual camera-verified attendance for HU102 is only 22 students out of 60 seats. "
+            "Seminar Hall (202) is consolidated because actual camera-verified attendance for Technical Communication (HU102) is only 22 students out of 60 seats. "
             "Moving it to Classroom 201 (capacity 50) fulfills all AV and accessibility requirements while allowing Room 202 to stay completely powered down, "
             "saving 4.5 kW HVAC and 1.0 kW lighting (5.5 kW total) and avoiding ₹840+ in daily electricity costs."
         )

@@ -40,6 +40,12 @@ def get_occupancy(
 @router.post("/ingest/occupancy")
 async def ingest_occupancy(data: OccupancyIngest):
     """Endpoint for the local YOLO computer vision worker."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM rooms WHERE id = ?", (data.room_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail=f"Room '{data.room_id}' not found in building directory.")
+
     result = ingest_reading(
         room_id=data.room_id,
         count=data.count,

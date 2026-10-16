@@ -17,6 +17,9 @@ ENDPOINTS = [
     ("GET", "/fleet", None),
     ("GET", "/alerts", None),
     ("POST", "/optimize", {"day": "Monday"}),
+    ("POST", "/simulate", {"hvac_setpoint": 24.0, "lighting_dim": True}),
+    ("POST", "/advisor/explain", {}),
+    ("GET", "/sandbox", None),
     ("GET", "/solar", None),
     ("GET", "/anomalies", None),
     ("GET", "/anomalies/summary", None),
@@ -44,7 +47,7 @@ def run_benchmark(n_runs=5):
         url = f"{BASE}{path}"
         headers = {}
         data = None
-        if body:
+        if body is not None:
             data = json.dumps(body).encode("utf-8")
             headers["Content-Type"] = "application/json"
             

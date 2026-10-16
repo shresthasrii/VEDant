@@ -86,11 +86,19 @@ def get_sandbox() -> Dict[str, Any]:
     """Returns current active stress-test drill and boundary metrics."""
     return get_sandbox_status()
 
+ALLOWED_DRILLS = {"HEATWAVE", "GRID_CURTAILMENT", "EXAM_SURGE", "RESET"}
+
 @router.post("/sandbox/drill")
 @router.post("/intelligence/sandbox/drill")
 def execute_drill(req: DrillRequest) -> Dict[str, Any]:
     """Executes a campus stress-test drill (HEATWAVE, GRID_CURTAILMENT, EXAM_SURGE, RESET)."""
-    return run_stress_drill(req.drill_type)
+    dtype = (req.drill_type or "").strip().upper()
+    if dtype not in ALLOWED_DRILLS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid drill_type '{req.drill_type}'. Allowed types: {sorted(list(ALLOWED_DRILLS))}"
+        )
+    return run_stress_drill(dtype)
 
 @router.post("/copilot/chat")
 @router.post("/intelligence/copilot/chat")
