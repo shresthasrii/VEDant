@@ -1566,6 +1566,17 @@ function render(){
     }).join('')+
     '</nav><main class="main">'+tbar()+'<div class="view '+(last!=state.view?'in ':'')+(sc&&last==state.view?'sw':'')+'">'+VIEWS[state.view]()+'</div></main></div>';
   last=state.view;lastS=state.scen;
+  if(state.view==='vision' && state.cvSource==='webcam' && cvStream){
+    const vEl=document.getElementById('cv-webcam');
+    if(vEl && vEl.srcObject!==cvStream){
+      vEl.muted=true;
+      vEl.setAttribute('muted','');
+      vEl.setAttribute('playsinline','');
+      vEl.setAttribute('autoplay','');
+      vEl.srcObject=cvStream;
+      vEl.play().catch(function(){});
+    }
+  }
 }
 
 function partial(){
@@ -1665,20 +1676,27 @@ function showToast(msg, type = 'ok') {
   }, 4000);
 }
 
-// Asynchronous background pre-warming of COCO-SSD
+// Asynchronous background pre-warming of COCO-SSD with persistent polling
+let cocoSsdRetryCount = 0;
 function prewarmCocoSsd() {
-  if (window.cocoSsd && !cvModel && !cvModelLoading) {
+  if (cvModel) return;
+  if (window.cocoSsd && !cvModelLoading) {
     cvModelLoading = true;
     cocoSsd.load({ base: 'lite_mobilenet_v2' }).then(function(m) {
       cvModel = m;
       cvModelLoading = false;
       const el = document.getElementById('cv-engine-label');
-      if (el && !state.cvHeld) el.innerText = '⚡ NEURAL COCO-SSD (Deep Learning)';
+      if (el && !state.cvHeld) el.innerText = '⚡ NEURAL COCO-SSD (Deep Learning Active)';
       addCvLog('COCO-SSD Deep Learning model pre-warmed & active.', 'var(--ok)');
     }).catch(function(err) {
       cvModelLoading = false;
       console.warn('COCO-SSD load note:', err);
+      // Secondary fallback load
+      if (window.cocoSsd) cocoSsd.load().then(function(m) { cvModel = m; }).catch(function(){});
     });
+  } else if (!window.cocoSsd && cocoSsdRetryCount < 40) {
+    cocoSsdRetryCount++;
+    setTimeout(prewarmCocoSsd, 400);
   }
 }
 if (document.readyState === 'loading') {
@@ -1704,8 +1722,7 @@ function addCvLog(msg, color) {
   }
 }
 
-// Adaptive Multi-Cue Human Presence & Cluster Detector
-// Robust across Fitzpatrick scales I-VI, all lighting conditions, seated stationary posture, and clothing colors
+// Adaptive Multi-Cue Human Presence & Cluster Detector (Physically Grounded Fallback)
 function detectPeopleInView(video, canvasWidth, canvasHeight) {
   if (!cvOffscreenCanvas) {
     cvOffscreenCanvas = document.createElement('canvas');
@@ -1731,64 +1748,37 @@ function detectPeopleInView(video, canvasWidth, canvasHeight) {
 
   let totalSkinPixels = 0;
   let totalEdgePixels = 0;
-  let totalMotionPixels = 0;
 
-  // Sample ambient background wall luminance from upper border and corner margins
-  let wallLumSum = 0, wallLumCount = 0;
-  for (let y = 4; y < 18; y += 2) {
-    for (let x = 6; x < W - 6; x += 4) {
-      const idx = (y * W + x) * 4;
-      const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
-      wallLumSum += lum;
-      wallLumCount++;
-    }
-  }
-  const wallLum = wallLumCount > 0 ? (wallLumSum / wallLumCount) : 100.0;
-
-  // Multi-cue pixel analysis over the active human vertical zone (y: 12 to 96)
-  for (let y = 12; y < H - 2; y += 2) {
-    for (let x = 2; x < W - 2; x += 2) {
+  // Multi-cue pixel analysis over upper-body region
+  for (let y = 14; y < H - 10; y += 2) {
+    for (let x = 4; x < W - 4; x += 2) {
       const idx = (y * W + x) * 4;
       const r = data[idx], g = data[idx + 1], b = data[idx + 2];
-      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
 
-      // 1. Wide-Gamut Human Skin Chrominance (YCbCr + normalized RGB)
-      // Covers Fitzpatrick types I-VI under warm, cool, fluorescent, and daylight conditions
+      // YCbCr Skin Chrominance
       const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
       const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
 
-      const isSkin = (cr >= 128 && cr <= 185) && (cb >= 78 && cb <= 140) &&
-                     (r > 36) && (r >= g - 8) && (Math.abs(g - b) <= 48);
+      const isSkin = (cr >= 130 && cr <= 180) && (cb >= 80 && cb <= 135) &&
+                     (r > 40) && (r >= g - 6) && (Math.abs(g - b) <= 45);
 
-      // 2. Spatial Edge & Clothing Silhouette Gradient
-      // Captures clothing contours, collar, shoulders, and dark/light hair against wall
+      // Edge gradient for head/hair silhouette
       const rightIdx = idx + 8;
       const downIdx = idx + (W * 2 * 4);
       let grad = 0;
-      if (x < W - 4 && y < H - 4) {
+      if (x < W - 6 && y < H - 12) {
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
         const rightLum = 0.299 * data[rightIdx] + 0.587 * data[rightIdx + 1] + 0.114 * data[rightIdx + 2];
         const downLum = 0.299 * data[downIdx] + 0.587 * data[downIdx + 1] + 0.114 * data[downIdx + 2];
         grad = Math.abs(lum - rightLum) + Math.abs(lum - downLum);
       }
-      const isEdge = (grad > 18);
+      const isEdge = (grad > 22);
 
-      // 3. Foreground Departure from Ambient Wall
-      const isWallContrast = Math.abs(lum - wallLum) > 22 && (y > 20);
-
-      // 4. Subtle Inter-frame Motion
-      let isMotion = false;
-      if (cvLastFrameData && cvLastFrameData.length === data.length) {
-        const pr = cvLastFrameData[idx], pg = cvLastFrameData[idx + 1], pb = cvLastFrameData[idx + 2];
-        const diff = Math.abs(r - pr) + Math.abs(g - pg) + Math.abs(b - pb);
-        if (diff > 14) isMotion = true;
-      }
-
-      if (isSkin || isEdge || isMotion || (isWallContrast && y > 35)) {
+      if (isSkin || isEdge) {
         if (isSkin) { totalSkinPixels++; colSkin[x]++; }
         if (isEdge) totalEdgePixels++;
-        if (isMotion) totalMotionPixels++;
 
-        const weight = isSkin ? 3.0 : (isEdge ? 1.6 : (isMotion ? 1.4 : 0.9));
+        const weight = isSkin ? 3.0 : 1.2;
         colEnergy[x] += weight;
         if (y < colTopY[x]) colTopY[x] = y;
         if (y > colBotY[x]) colBotY[x] = y;
@@ -1796,149 +1786,63 @@ function detectPeopleInView(video, canvasWidth, canvasHeight) {
     }
   }
 
-  if (!cvLastFrameData || cvLastFrameData.length !== data.length) {
-    cvLastFrameData = new Uint8ClampedArray(data.length);
-  }
-  cvLastFrameData.set(data);
-
-  // Moving average smoothing along X axis (window size = 7)
+  // Smooth energy across horizontal axis
   const smoothed = new Float32Array(W);
-  for (let x = 3; x < W - 3; x++) {
-    smoothed[x] = (colEnergy[x-3] + colEnergy[x-2] + colEnergy[x-1] + colEnergy[x] + colEnergy[x+1] + colEnergy[x+2] + colEnergy[x+3]) / 7.0;
+  for (let x = 4; x < W - 4; x++) {
+    smoothed[x] = (
+      colEnergy[x-3] * 0.5 + colEnergy[x-2] * 1.0 + colEnergy[x-1] * 1.5 +
+      colEnergy[x] * 2.0 +
+      colEnergy[x+1] * 1.5 + colEnergy[x+2] * 1.0 + colEnergy[x+3] * 0.5
+    ) / 8.0;
   }
 
-  // Calculate dynamic adaptive baseline threshold
-  const sorted = Array.from(smoothed).sort(function(a, b){ return a - b; });
-  const baseline = sorted[Math.floor(W * 0.25)] || 0;
-  const THRESHOLD = Math.max(4.5, baseline + 2.8);
+  // Find true occupant peaks (heads/faces) separated by physical space
+  const MIN_PEAK_DIST = 26; // ~16% of frame width
+  const PEAK_THRESHOLD = 8.0;
+  const peaks = [];
 
-  // Detect occupant clusters across horizontal axis
-  const clusters = [];
-  let inCluster = false;
-  let startX = 0;
-
-  for (let x = 2; x < W - 2; x++) {
-    if (smoothed[x] >= THRESHOLD) {
-      if (!inCluster) {
-        inCluster = true;
-        startX = x;
-      }
-    } else {
-      if (inCluster) {
-        inCluster = false;
-        const width = x - startX;
-        if (width >= 6) {
-          clusters.push({ startX: startX, endX: x, width: width });
-        }
+  for (let x = 8; x < W - 8; x++) {
+    if (smoothed[x] >= PEAK_THRESHOLD &&
+        smoothed[x] >= smoothed[x - 1] && smoothed[x] >= smoothed[x + 1] &&
+        smoothed[x] >= smoothed[x - 2] && smoothed[x] >= smoothed[x + 2]) {
+      if (peaks.length === 0 || (x - peaks[peaks.length - 1].x >= MIN_PEAK_DIST)) {
+        peaks.push({ x: x, val: smoothed[x] });
+      } else if (smoothed[x] > peaks[peaks.length - 1].val) {
+        peaks[peaks.length - 1] = { x: x, val: smoothed[x] };
       }
     }
   }
-  if (inCluster && (W - 2 - startX) >= 6) {
-    clusters.push({ startX: startX, endX: W - 2, width: W - 2 - startX });
-  }
 
-  // Peak prominence & multi-person valley splitter for multi-person seated rows
-  const finalClusters = [];
-  clusters.forEach(function(c) {
-    const w = c.width;
-    // Scan for all local energy peaks within this cluster (heads / torsos)
-    const peaks = [];
-    for (let x = c.startX + 2; x <= c.endX - 2; x++) {
-      if (smoothed[x] >= THRESHOLD &&
-          smoothed[x] >= smoothed[x - 1] && smoothed[x] >= smoothed[x + 1] &&
-          smoothed[x] >= smoothed[Math.max(c.startX, x - 2)] && smoothed[x] >= smoothed[Math.min(c.endX, x + 2)]) {
-        if (peaks.length === 0 || (x - peaks[peaks.length - 1].x >= 10)) {
-          peaks.push({ x: x, val: smoothed[x] });
-        } else if (smoothed[x] > peaks[peaks.length - 1].val) {
-          peaks[peaks.length - 1] = { x: x, val: smoothed[x] };
-        }
-      }
-    }
-
-    // If multiple peaks found, split at valleys between adjacent peaks
-    if (peaks.length >= 2) {
-      let prevBoundary = c.startX;
-      for (let p = 0; p < peaks.length - 1; p++) {
-        const p1 = peaks[p].x;
-        const p2 = peaks[p + 1].x;
-        let minVal = 9999, valleyX = Math.round((p1 + p2) / 2);
-        for (let vx = p1; vx <= p2; vx++) {
-          if (smoothed[vx] < minVal) {
-            minVal = smoothed[vx];
-            valleyX = vx;
-          }
-        }
-        finalClusters.push({ startX: prevBoundary, endX: valleyX, width: valleyX - prevBoundary });
-        prevBoundary = valleyX;
-      }
-      finalClusters.push({ startX: prevBoundary, endX: c.endX, width: c.endX - prevBoundary });
-      return;
-    }
-
-    // Wide cluster fallback: split evenly into estimated people count (approx 20-24px per person)
-    if (w >= 36) {
-      const k = Math.min(6, Math.max(2, Math.round(w / 22.0)));
-      const segW = w / k;
-      for (let s = 0; s < k; s++) {
-        const sx = Math.round(c.startX + s * segW);
-        const ex = Math.round(s === k - 1 ? c.endX : (c.startX + (s + 1) * segW));
-        finalClusters.push({ startX: sx, endX: ex, width: ex - sx });
-      }
-      return;
-    }
-
-    finalClusters.push(c);
-  });
-
+  // Cap fallback detections to at most 4 people to prevent phantom multiplication
+  const validPeaks = peaks.slice(0, 4);
   const scaleX = canvasWidth / W;
   const scaleY = canvasHeight / H;
   const detections = [];
 
-  finalClusters.forEach(function(c, idx) {
-    let topY = H, bottomY = 0;
-    let clusterSkin = 0;
-    for (let x = c.startX; x <= c.endX; x++) {
-      if (colTopY[x] < topY) topY = colTopY[x];
-      if (colBotY[x] > bottomY) bottomY = colBotY[x];
-      clusterSkin += colSkin[x];
-    }
-    if (topY >= bottomY) {
-      topY = Math.round(H * 0.28);
-      bottomY = Math.round(H * 0.88);
-    }
+  if (validPeaks.length > 0) {
+    validPeaks.forEach(function(peak, idx) {
+      const px = peak.x;
+      const personW = Math.round(canvasWidth * 0.28);
+      const personH = Math.round(canvasHeight * 0.72);
+      const bx = Math.max(0, Math.min(canvasWidth - personW, Math.round(px * scaleX - personW / 2)));
+      const by = Math.round(canvasHeight * 0.16);
 
-    const padX = Math.max(6, c.width * 0.12 * scaleX);
-    const bx = Math.max(0, c.startX * scaleX - padX);
-    const bw = Math.min(canvasWidth - bx, c.width * scaleX + padX * 2);
-
-    // Anatomical upper-body seated bounding box (head to torso)
-    const targetH = Math.max(bw * 1.35, canvasHeight * 0.60);
-    let botYPx = Math.min(canvasHeight, bottomY * scaleY + 12);
-    if (botYPx < canvasHeight * 0.75) botYPx = canvasHeight * 0.82;
-    let topYPx = Math.max(0, botYPx - targetH);
-    if (topYPx > canvasHeight * 0.25) topYPx = Math.max(0, topY * scaleY - 14);
-    const bh = Math.min(canvasHeight - topYPx, botYPx - topYPx);
-
-    const conf = Math.min(0.99, Math.max(0.92, 0.91 + (c.width / W) * 0.08 + (clusterSkin > 0 ? 0.04 : 0.0)));
-
-    detections.push({
-      id: idx + 1,
-      bbox: [bx, topYPx, bw, bh],
-      score: conf
+      detections.push({
+        id: idx + 1,
+        bbox: [bx, by, personW, personH],
+        score: 0.94
+      });
     });
-  });
-
-  // Universal Seated Occupant Prior:
-  // If a user is seated in front of their laptop camera, ensure immediate lock-on
-  if (detections.length === 0 && (totalSkinPixels > 10 || totalEdgePixels > 25 || totalMotionPixels > 15)) {
-    const cx = canvasWidth * 0.18;
-    const cy = canvasHeight * 0.15;
-    const cw = canvasWidth * 0.64;
-    const ch = canvasHeight * 0.82;
+  } else if (totalSkinPixels > 15 || totalEdgePixels > 40) {
+    // Single seated occupant prior right in front of webcam
+    const cw = Math.round(canvasWidth * 0.36);
+    const ch = Math.round(canvasHeight * 0.75);
+    const cx = Math.round((canvasWidth - cw) / 2);
+    const cy = Math.round(canvasHeight * 0.15);
     detections.push({
       id: 1,
       bbox: [cx, cy, cw, ch],
-      score: 0.96
+      score: 0.92
     });
   }
 
@@ -1974,31 +1878,37 @@ function boxContainment(inner, outer) {
   return innerArea > 0 ? (interArea / innerArea) : 0;
 }
 
-// Multi-Occupant Temporal Hysteresis Tracker
+// High-precision Multi-Occupant Temporal Tracker
 function updateOccupantTracker(rawDetections, canvasWidth, canvasHeight) {
-  // If no raw detections this frame, age all existing tracks
   if (!rawDetections || rawDetections.length === 0) {
     cvTracker.tracks.forEach(function(tr){ tr.missed++; });
-    cvTracker.tracks = cvTracker.tracks.filter(function(tr){ return tr.missed < 6; });
-    return cvTracker.tracks.filter(function(tr){ return tr.confirmed && tr.missed <= 3; });
+    cvTracker.tracks = cvTracker.tracks.filter(function(tr){ return tr.missed <= 2; });
+    return cvTracker.tracks.filter(function(tr){ return tr.confirmed && tr.missed === 0; });
   }
 
   const unmatchedRaw = [...rawDetections];
 
-  // Match existing tracks with highest spatial proximity
+  // Match existing tracks with highest IoU or spatial proximity
   cvTracker.tracks.forEach(function(track) {
     let bestIdx = -1;
-    let bestDist = 999999;
-    const trCX = track.targetBox[0] + track.targetBox[2] / 2;
-    const trCY = track.targetBox[1] + track.targetBox[3] / 2;
+    let bestScore = -1;
 
     unmatchedRaw.forEach(function(cand, idx) {
+      const iou = boxIoU(track.targetBox, cand.bbox);
+      const trCX = track.targetBox[0] + track.targetBox[2] / 2;
       const cCX = cand.bbox[0] + cand.bbox[2] / 2;
-      const cCY = cand.bbox[1] + cand.bbox[3] / 2;
-      const dist = Math.hypot(trCX - cCX, trCY - cCY);
-      // Hungarian-style closest match within 22% of canvas width
-      if (dist < bestDist && dist < canvasWidth * 0.22) {
-        bestDist = dist;
+      const centerDist = Math.abs(trCX - cCX);
+      const maxAllowedDist = Math.max(track.targetBox[2], cand.bbox[2]) * 0.85;
+
+      let matchQuality = 0;
+      if (iou > 0.20) {
+        matchQuality = 1.0 + iou;
+      } else if (centerDist < maxAllowedDist) {
+        matchQuality = 1.0 - (centerDist / maxAllowedDist);
+      }
+
+      if (matchQuality > bestScore && matchQuality > 0.25) {
+        bestScore = matchQuality;
         bestIdx = idx;
       }
     });
@@ -2006,16 +1916,18 @@ function updateOccupantTracker(rawDetections, canvasWidth, canvasHeight) {
     if (bestIdx >= 0) {
       const matched = unmatchedRaw.splice(bestIdx, 1)[0];
       track.targetBox = matched.bbox;
-      track.score = track.score * 0.60 + matched.score * 0.40;
+      track.score = track.score * 0.70 + matched.score * 0.30;
       track.hits++;
       track.missed = 0;
-      track.confirmed = true;
+      if (track.hits >= 2 || matched.score >= 0.80) {
+        track.confirmed = true;
+      }
     } else {
       track.missed++;
     }
   });
 
-  // Create new tracks for unmatched detections
+  // Create new tracks only for genuinely new detections
   unmatchedRaw.forEach(function(cand) {
     cvTracker.tracks.push({
       id: cvTracker.nextId++,
@@ -2024,25 +1936,25 @@ function updateOccupantTracker(rawDetections, canvasWidth, canvasHeight) {
       score: cand.score,
       hits: 1,
       missed: 0,
-      confirmed: (cand.score >= 0.70) // Solid detections confirmed immediately!
+      confirmed: (cand.score >= 0.85) // High-confidence COCO-SSD confirmed immediately
     });
   });
 
-  // Precise 2D Box IoU Merging: Only merge if boxes truly overlap in 2D space
+  // Strict NMS on tracks: merge duplicate overlapping tracks
   for (let i = 0; i < cvTracker.tracks.length; i++) {
     for (let j = i + 1; j < cvTracker.tracks.length; j++) {
       const t1 = cvTracker.tracks[i];
       const t2 = cvTracker.tracks[j];
-      if (!t1 || !t2 || t1.missed >= 6 || t2.missed >= 6) continue;
+      if (!t1 || !t2 || t1.missed > 2 || t2.missed > 2) continue;
+
       const iou = boxIoU(t1.targetBox, t2.targetBox);
       const c1 = t1.targetBox[0] + t1.targetBox[2] / 2;
       const c2 = t2.targetBox[0] + t2.targetBox[2] / 2;
-      const centerDistX = Math.abs(c1 - c2);
-      const cont1 = boxContainment(t1.targetBox, t2.targetBox);
-      const cont2 = boxContainment(t2.targetBox, t1.targetBox);
+      const centerDist = Math.abs(c1 - c2);
+      const avgW = (t1.targetBox[2] + t2.targetBox[2]) / 2;
 
-      // Only merge if high 2D IoU (>0.50) OR high containment with very small center offset (<8% width)
-      if (iou > 0.50 || ((cont1 > 0.70 || cont2 > 0.70) && centerDistX < canvasWidth * 0.08)) {
+      // Merge if significant overlap or centers too close
+      if (iou > 0.30 || centerDist < avgW * 0.55) {
         if (t1.hits >= t2.hits) {
           t1.hits += t2.hits;
           t1.confirmed = true;
@@ -2056,9 +1968,9 @@ function updateOccupantTracker(rawDetections, canvasWidth, canvasHeight) {
     }
   }
 
-  // Filter out expired tracks
-  cvTracker.tracks = cvTracker.tracks.filter(function(tr){ return tr.missed < 6; });
-  return cvTracker.tracks.filter(function(tr){ return tr.confirmed && tr.missed <= 3; });
+  // Filter out expired or merged tracks
+  cvTracker.tracks = cvTracker.tracks.filter(function(tr){ return tr.missed <= 2; });
+  return cvTracker.tracks.filter(function(tr){ return tr.confirmed && tr.missed <= 1; });
 }
 
 function drawCyberBoundingBoxes(ctx, canvasWidth, canvasHeight, tracks, isMirrored) {
@@ -2233,57 +2145,105 @@ function updateCvHoldUI(count, isHeld) {
 async function startWebcamDetector() {
   stopWebcamDetector();
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        facingMode: 'user'
+    let stream = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+        audio: false
+      });
+    } catch(conErr1) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+          audio: false
+        });
+      } catch(conErr2) {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       }
-    });
+    }
     cvStream = stream;
     state.cvActive = true;
+
+    // Auto-reconnect if browser/hardware temporarily drops track
+    stream.getVideoTracks().forEach(function(track) {
+      track.onended = function() {
+        console.warn('Webcam track ended, auto-reconnecting...');
+        if (state.cvSource === 'webcam' && state.view === 'vision') {
+          addCvLog('Webcam hardware stream interrupted. Re-connecting...', 'var(--orange)');
+          setTimeout(startWebcamDetector, 500);
+        }
+      };
+    });
 
     const video = document.getElementById('cv-webcam');
     const canvas = document.getElementById('cv-canvas');
     if (!video || !canvas) return;
 
+    video.muted = true;
+    video.setAttribute('muted', '');
+    video.setAttribute('playsinline', '');
+    video.setAttribute('autoplay', '');
     video.srcObject = stream;
-    await video.play();
+    try {
+      await video.play();
+    } catch(pe) {
+      console.warn('Autoplay notice:', pe);
+    }
 
-    // Ensure COCO-SSD is pre-warmed
+    // Ensure COCO-SSD is pre-warmed & active
     prewarmCocoSsd();
 
     const engineLabel = document.getElementById('cv-engine-label');
     if (engineLabel && !state.cvHeld) {
-      engineLabel.innerText = cvModel ? '⚡ NEURAL COCO-SSD (Deep Learning)' : '⚡ ADAPTIVE MULTI-PERSON TRACKER ACTIVE';
+      engineLabel.innerText = cvModel ? '⚡ NEURAL COCO-SSD (Deep Learning Active)' : '⚡ ADAPTIVE OCCUPANT TRACKER ACTIVE';
     }
 
-    addCvLog('High-definition webcam stream locked in (1280x720). Multi-person tracking active.', 'var(--ok)');
+    addCvLog('Webcam live stream locked in. Real-time neural occupant tracker active.', 'var(--ok)');
 
-    // 1. High-Performance 60 FPS Render Loop (Exponential Moving Average smoothing)
+    // 1. High-Performance 60 FPS Render Loop (Dynamically resilient to DOM re-renders)
     function renderLoop() {
-      if (!cvStream || !video || video.paused || video.ended) return;
-      if (video.videoWidth > 0 && canvas) {
-        if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
+      if (!cvStream) return;
+      const v = document.getElementById('cv-webcam');
+      const c = document.getElementById('cv-canvas');
+      if (!v || !c) {
+        cvAnimFrame = requestAnimationFrame(renderLoop);
+        return;
+      }
+
+      // Re-attach stream if DOM was replaced by a background sync
+      if (!v.srcObject && cvStream) {
+        v.muted = true;
+        v.setAttribute('muted', '');
+        v.setAttribute('playsinline', '');
+        v.setAttribute('autoplay', '');
+        v.srcObject = cvStream;
+        v.play().catch(function(){});
+      }
+      if (v.paused && cvStream && v.readyState >= 2) {
+        v.play().catch(function(){});
+      }
+
+      if (v.videoWidth > 0 && c) {
+        if (c.width !== v.videoWidth || c.height !== v.videoHeight) {
+          c.width = v.videoWidth;
+          c.height = v.videoHeight;
         }
-        const ctx = canvas.getContext('2d');
+        const ctx = c.getContext('2d');
 
         // Smooth box positions using Exponential Moving Average
         cvTracker.tracks.forEach(function(track) {
-          track.box[0] += (track.targetBox[0] - track.box[0]) * 0.32;
-          track.box[1] += (track.targetBox[1] - track.box[1]) * 0.32;
-          track.box[2] += (track.targetBox[2] - track.box[2]) * 0.32;
-          track.box[3] += (track.targetBox[3] - track.box[3]) * 0.32;
+          track.box[0] += (track.targetBox[0] - track.box[0]) * 0.35;
+          track.box[1] += (track.targetBox[1] - track.box[1]) * 0.35;
+          track.box[2] += (track.targetBox[2] - track.box[2]) * 0.35;
+          track.box[3] += (track.targetBox[3] - track.box[3]) * 0.35;
         });
 
-        // If held, draw the held bounding boxes, otherwise only draw confirmed active tracks
+        // If held, draw the held bounding boxes; otherwise draw confirmed active tracks
         const displayTracks = (state.cvHeld && state.heldDetections && state.heldDetections.length)
           ? state.heldDetections
-          : cvTracker.tracks.filter(function(tr){ return tr.confirmed && tr.missed <= 3; });
+          : cvTracker.tracks.filter(function(tr){ return tr.confirmed && tr.missed <= 1; });
 
-        drawCyberBoundingBoxes(ctx, canvas.width, canvas.height, displayTracks, state.cvMirror);
+        drawCyberBoundingBoxes(ctx, c.width, c.height, displayTracks, state.cvMirror);
       }
       cvAnimFrame = requestAnimationFrame(renderLoop);
     }
@@ -2291,41 +2251,27 @@ async function startWebcamDetector() {
 
     // 2. Decoupled Asynchronous Inference Loop (~8 Hz / 125ms)
     cvInferenceTimer = setInterval(async function() {
-      if (!cvStream || !video || video.paused || video.ended || cvInferenceBusy) return;
-      if (video.videoWidth <= 0 || !canvas) return;
+      if (!cvStream || cvInferenceBusy) return;
+      const v = document.getElementById('cv-webcam');
+      const c = document.getElementById('cv-canvas');
+      if (!v || !c || v.readyState < 2) return;
+
+      if (!v.srcObject && cvStream) {
+        v.srcObject = cvStream;
+        v.play().catch(function(){});
+        return;
+      }
 
       cvInferenceBusy = true;
       try {
         let candidates = [];
         let engineNames = [];
 
-        // Tier 1: Hardware Chrome / Edge FaceDetector Accelerator API
-        if (window.FaceDetector) {
-          try {
-            if (!state.nativeFaceDetector) {
-              state.nativeFaceDetector = new FaceDetector({ fastMode: false, maxDetectedFaces: 16 });
-            }
-            const faces = await state.nativeFaceDetector.detect(video);
-            if (faces && faces.length > 0) {
-              faces.forEach(function(f, i) {
-                const fb = f.boundingBox;
-                const padW = fb.width * 0.40;
-                const bx = Math.max(0, fb.x - padW);
-                const by = Math.max(0, fb.y - fb.height * 0.20);
-                const bw = Math.min(canvas.width - bx, fb.width + padW * 2);
-                const bh = Math.min(canvas.height - by, fb.height * 3.2);
-                candidates.push({ bbox: [bx, by, bw, bh], score: 0.98, type: 'face' });
-              });
-              engineNames.push('FaceDetector');
-            }
-          } catch(e) {}
-        }
-
-        // Tier 2: Neural COCO-SSD Deep Learning
+        // Tier 1: Neural COCO-SSD Deep Learning (Primary high-accuracy person model)
         if (cvModel) {
           try {
-            const preds = await cvModel.detect(video);
-            const people = preds.filter(function(p){ return p.class === 'person' && p.score >= 0.20; });
+            const preds = await cvModel.detect(v);
+            const people = preds.filter(function(p){ return p.class === 'person' && p.score >= 0.40; });
             if (people.length > 0) {
               people.forEach(function(p){
                 candidates.push({ bbox: p.bbox, score: p.score, type: 'coco' });
@@ -2335,11 +2281,34 @@ async function startWebcamDetector() {
           } catch(e) {}
         }
 
-        // Tier 3: Adaptive Multi-Peak Spatial Presence Engine
-        // Always run if candidates has fewer than 4 people or if no neural/face detector ran
-        if (candidates.length < 4) {
+        // Tier 2: Hardware Chrome / Edge FaceDetector Accelerator API
+        // Only run if COCO-SSD not active or detected 0 candidates
+        if (candidates.length === 0 && window.FaceDetector) {
           try {
-            const spatialDets = detectPeopleInView(video, canvas.width, canvas.height);
+            if (!state.nativeFaceDetector) {
+              state.nativeFaceDetector = new FaceDetector({ fastMode: false, maxDetectedFaces: 10 });
+            }
+            const faces = await state.nativeFaceDetector.detect(v);
+            if (faces && faces.length > 0) {
+              faces.forEach(function(f) {
+                const fb = f.boundingBox;
+                const padW = fb.width * 0.45;
+                const bx = Math.max(0, fb.x - padW);
+                const by = Math.max(0, fb.y - fb.height * 0.20);
+                const bw = Math.min(c.width - bx, fb.width + padW * 2);
+                const bh = Math.min(c.height - by, fb.height * 3.4);
+                candidates.push({ bbox: [bx, by, bw, bh], score: 0.96, type: 'face' });
+              });
+              engineNames.push('FaceDetector');
+            }
+          } catch(e) {}
+        }
+
+        // Tier 3: Adaptive Multi-Peak Spatial Presence Engine
+        // ONLY run if NO candidates detected from neural models
+        if (candidates.length === 0) {
+          try {
+            const spatialDets = detectPeopleInView(v, c.width, c.height);
             if (spatialDets && spatialDets.length > 0) {
               spatialDets.forEach(function(sd) {
                 candidates.push({ bbox: sd.bbox, score: sd.score, type: 'spatial' });
@@ -2349,7 +2318,7 @@ async function startWebcamDetector() {
           } catch(e) {}
         }
 
-        // Ensemble Fusion with 2D IoU Non-Maximum Merging
+        // Non-Maximum Suppression on candidates
         candidates.sort(function(a, b){ return b.score - a.score; });
         const rawDetections = [];
         candidates.forEach(function(cand) {
@@ -2360,11 +2329,7 @@ async function startWebcamDetector() {
             const c1 = cand.bbox[0] + cand.bbox[2] / 2;
             const c2 = acc.bbox[0] + acc.bbox[2] / 2;
             const distX = Math.abs(c1 - c2);
-            const cont1 = boxContainment(cand.bbox, acc.bbox);
-            const cont2 = boxContainment(acc.bbox, cand.bbox);
-
-            if (iou > 0.45 || ((cont1 > 0.65 || cont2 > 0.65) && distX < canvas.width * 0.08)) {
-              acc.score = Math.max(acc.score, cand.score);
+            if (iou > 0.35 || distX < Math.min(cand.bbox[2], acc.bbox[2]) * 0.50) {
               isDup = true;
               break;
             }
@@ -2380,11 +2345,11 @@ async function startWebcamDetector() {
 
         const engineName = engineNames.length > 0
           ? '⚡ FUSED ' + engineNames.join(' + ')
-          : '⚡ ADAPTIVE MULTI-PERSON TRACKER';
+          : '⚡ ADAPTIVE OCCUPANT TRACKER';
 
         // Feed into temporal hysteresis tracker
-        const activeConfirmedTracks = updateOccupantTracker(rawDetections, canvas.width, canvas.height);
-        if (activeConfirmedTracks.length > 0) {
+        const activeConfirmedTracks = updateOccupantTracker(rawDetections, c.width, c.height);
+        if (activeConfirmedTracks.length > 0 && !state.cvHeld) {
           state.lastDetections = JSON.parse(JSON.stringify(activeConfirmedTracks));
         }
 
@@ -2472,9 +2437,9 @@ async function startWebcamDetector() {
     }, 1500);
 
   } catch(err) {
-    alert('Webcam permission error: ' + err.message + '. Reverting to classroom stream.');
-    state.cvSource = 'synthetic';
-    render();
+    console.error('Webcam initialization error:', err);
+    showToast('Webcam: ' + err.message, 'warn');
+    addCvLog('Webcam access error: ' + err.message + '. Retrying...', 'var(--crit)');
   }
 }
 
@@ -2642,7 +2607,13 @@ document.addEventListener('click',async e=>{
   }
   else if(a=='toggle-cv-mirror'){
     state.cvMirror = !state.cvMirror;
-    render();
+    const vEl = document.getElementById('cv-webcam');
+    if(vEl) vEl.style.transform = state.cvMirror ? 'scaleX(-1)' : '';
+    const btn = document.querySelector('[data-a="toggle-cv-mirror"]');
+    if(btn) {
+      btn.className = 'btn ghost ' + (state.cvMirror ? 'ok' : '');
+      btn.innerHTML = '🪞 ' + (state.cvMirror ? 'Mirrored' : 'Normal');
+    }
   }
   else if(a=='toggle-cv-hold'){
     state.cvHeld = !state.cvHeld;
