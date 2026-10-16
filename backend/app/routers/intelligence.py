@@ -28,6 +28,7 @@ router = APIRouter(prefix="", tags=["intelligence"])
 class CopilotChatRequest(BaseModel):
     query: Optional[str] = None
     prompt: Optional[str] = None
+    history: Optional[List[Dict[str, str]]] = None
 
 class DrillRequest(BaseModel):
     drill_type: str # 'HEATWAVE', 'GRID_CURTAILMENT', 'EXAM_SURGE', 'RESET'
@@ -98,7 +99,8 @@ def chat_with_copilot(req: CopilotChatRequest) -> Dict[str, Any]:
     q = (req.query or req.prompt or "").strip()
     if not q:
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
-    return ask_copilot(q)
+    return ask_copilot(q, history=req.history)
+
 
 # ── New Enterprise Intelligence Endpoints ─────────────────────────────────────
 

@@ -219,3 +219,37 @@ def test_all_enterprise_api_endpoints():
     res = client.get("/smart-schedule")
     assert res.status_code == 200
     assert "timetable_efficiency_score" in res.json()
+
+def test_copilot_room_telemetry_query():
+    r202 = ask_copilot("Tell me about Room 202")
+    assert "202" in r202["answer"]
+    assert "Headcount" in r202["answer"] or "occupancy" in r202["answer"].lower()
+    assert "Demand" in r202["answer"] or "kW" in r202["answer"]
+
+    r101 = ask_copilot("Status of Room 101")
+    assert "101" in r101["answer"]
+
+def test_copilot_course_lookup_query():
+    res = ask_copilot("When is course CS101?")
+    assert "CS101" in res["answer"]
+    assert "Instructor" in res["answer"] or "Enrolled" in res["answer"]
+
+def test_copilot_esg_and_budget_queries():
+    esg_res = ask_copilot("What are our Scope 1 and Scope 2 emissions?")
+    assert "Scope 1" in esg_res["answer"]
+    assert "Scope 2" in esg_res["answer"]
+
+    bud_res = ask_copilot("Are we within budget this month?")
+    assert "budget" in bud_res["answer"].lower() or "pacing" in bud_res["answer"].lower()
+
+def test_copilot_sensor_action_dispatch():
+    # Toggle fault
+    res = ask_copilot("fault sensor 202")
+    assert "action_dispatched" in res
+    assert res["action_dispatched"]["action"] == "TOGGLE_FAULT"
+
+    # Restore sensor
+    heal = ask_copilot("repair sensor 202")
+    assert "action_dispatched" in heal
+    assert heal["action_dispatched"]["action"] == "RESTORE_SENSOR"
+

@@ -837,6 +837,20 @@ return head('Energy Analytics','Power demand (kW) and energy (kWh) for a typical
 
 const card=c=>{const s=state.rs[c.id],I=imp(O,BASE);return'<article class="card rec '+(s=='dis'?'dis':'')+'"><header><span class="tag">'+c.k+'</span><span class="mu">'+({sim:'Simulated · applied to Optimized',rev:'Marked for review',dis:'Dismissed'}[s]||'New')+'</span></header><h3>'+c.title+'</h3><dl><dt>Finding</dt><dd>'+c.find+'</dd><dt>Evidence</dt><dd>'+c.ev+'</dd><dt>Suggested action</dt><dd>'+c.act+'</dd><dt>Estimated impact</dt><dd><b>'+f1(c.imp.kwh)+' kWh/day</b> ('+f1(c.imp.pct)+'%) · ₹'+fi(c.imp.inr)+' · '+f1(c.imp.co2)+' kg CO₂ · modeled vs baseline</dd><dt>Confidence</dt><dd>'+c.conf+'</dd><dt>Assumptions</dt><dd>'+c.as+'</dd></dl><div class="acts">'+(s=='dis'?'<button class="btn ghost" data-a="rec" data-v="'+c.id+'" data-w="undo">Restore</button>':'<button class="btn" data-a="rec" data-v="'+c.id+'" data-w="sim">Simulate impact</button><button class="btn ghost" data-a="rec" data-v="'+c.id+'" data-w="rev">Mark for review</button><button class="btn ghost" data-a="rec" data-v="'+c.id+'" data-w="dis">Dismiss</button>')+'</div>'+(s=='sim'?'<div class="res"><span>Optimized scenario now: <b>'+fi(sum(ser(O)))+' kWh/day</b> vs baseline '+fi(sum(ser(BASE)))+' ('+f1(I.pct)+'% lower)</span><button class="btn" data-a="go" data-v="twin">View in twin</button><button class="btn ghost" data-a="go" data-v="energy">Energy analytics</button></div>':'')+'</article>'};
 
+function formatCopilotText(str) {
+  if (!str) return '';
+  let html = str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  html = html.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
+  html = html.replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,.1);padding:1px 5px;border-radius:4px;font-size:11px;color:var(--orange)">$1</code>');
+  html = html.replace(/(?:^|\n)[ \t]*[-*][ \t]+([^\n]+)/g, '<div style="display:flex;gap:6px;margin:2px 0"><span style="color:var(--orange)">•</span><span>$1</span></div>');
+  html = html.replace(/\n\n/g, '<div style="height:8px"></div>');
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
 function renderCopilotChat(){
   return '<div class="card" style="margin-bottom:14px;background:rgba(36,28,27,.88);border:1px solid rgba(255,109,41,.45)">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">' +
@@ -855,13 +869,15 @@ function renderCopilotChat(){
       '<button class="pill-btn" data-a="quick-copilot" data-v="Are there any energy or occupancy anomalies?">"Detect building anomalies"</button>' +
       '<button class="pill-btn" data-a="quick-copilot" data-v="Which room equipment needs predictive maintenance?">"Predictive maintenance status"</button>' +
       '<button class="pill-btn" data-a="quick-copilot" data-v="What is our BEE Star rating and EUI?">"BEE 5-Star & EUI rating"</button>' +
+      '<button class="pill-btn" data-a="quick-copilot" data-v="Tell me about Room 202">"Status of Room 202"</button>' +
       '<button class="pill-btn" data-a="quick-copilot" data-v="Trigger heatwave drill">"Trigger heatwave drill (Action)"</button>' +
       '<button class="pill-btn" data-a="quick-copilot" data-v="Explain Time-of-Day tariff savings">"Time-of-Day tariff savings"</button>' +
     '</div>' +
     '<div class="chat-stream" id="copilot-messages">' +
       state.copilotChat.map(function(m){
         return '<div class="bubble ' + m.from + '">' +
-          '<div>' + m.text + '</div>' +
+          '<div>' + formatCopilotText(m.text) + '</div>' +
+          (m.action_dispatched ? '<div style="margin-top:6px"><span class="badge badge-act" style="background:rgba(76,195,138,.2);color:var(--ok);border-color:var(--ok)">⚡ ACTION EXECUTED</span></div>' : '') +
           '<div class="bubble-meta">' + (m.from==='user' ? 'Facility Director' : 'VERDANT Copilot (Grounded Model)') + (m.mode ? ' · ' + m.mode : '') + '</div>' +
         '</div>';
       }).join('') +
@@ -1728,17 +1744,25 @@ document.addEventListener('click',async e=>{
     const stEl = document.getElementById('copilot-messages');
     if(stEl) stEl.scrollTop = stEl.scrollHeight;
     try {
+      const historyPayload = state.copilotChat.slice(-6).map(function(m){
+        return { role: m.from === 'user' ? 'user' : 'assistant', content: m.text };
+      });
       const res = await fetch(API_BASE+'/intelligence/copilot/chat', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({prompt: txt})
+        body:JSON.stringify({prompt: txt, history: historyPayload})
       });
       if(res.ok){
         const data = await res.json();
+        if(data.action_dispatched) {
+          await syncIntelligence();
+          await syncAlerts();
+        }
         state.copilotChat.push({
           from:'copilot',
           text: data.reply,
           mode: data.mode,
+          action_dispatched: data.action_dispatched,
           sources: data.sources
         });
       } else {
