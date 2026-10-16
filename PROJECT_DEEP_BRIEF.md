@@ -148,20 +148,23 @@ Generates non-dominated Pareto frontiers balancing competing operational trade-o
 2. **Balanced Regime (Recommended):** $10\%$ safety buffer, $2$ relocations, **88.3 kWh/day saved**, Seminar Hall 202 unpowered.
 3. **Aggressive Decarbonization Regime:** $5\%$ safety buffer, maximum session clustering into minimal physical wings.
 
-### 3.7. Decoupled Edge Computer Vision & Headcount Anti-Fluctuation Stabilizer (`frontend/index.html` & `cv/worker.py`)
-In real-world computer vision, raw frame-by-frame detections fluctuate due to lighting shifts, edge noise, and partial body occlusions. VERDANT deploys a five-stage anti-fluctuation stabilization pipeline:
+### 3.7. Decoupled Edge Computer Vision & Multi-Person Ensemble Fusion (`frontend/index.html` & `cv/worker.py`)
+In real-world computer vision, multi-occupant presence (such as 4 students seated side-by-side in front of a camera) can suffer from partial profile occlusions, clothing blending, and cluster collapse. VERDANT deploys a high-recall multi-model ensemble and 2D IoU stabilization pipeline:
 1. **Decoupled Architecture:** High-refresh 60 FPS `requestAnimationFrame` canvas rendering loop with Exponential Moving Average ($\alpha = 0.32$) coordinate interpolation, decoupled from an asynchronous 8 Hz (125ms) inference worker.
-2. **Spatial Overlap Clustering (Deduplication):**
-   $$D(c_i, c_j) = \sqrt{(x_i - x_j)^2 + (y_i - y_j)^2} < 0.18 \cdot W_{canvas}$$
-   Nearby candidate boxes (e.g. head vs torso) are clustered into a single human entity.
-3. **Confirmation Hysteresis:** New tracks start in an unconfirmed tentative state. A track is confirmed only when observed across $\ge 2$ consecutive cycles (`hits >= 2`), and persists through temporary occlusion up to 4 missed frames (`missed <= 4`).
-4. **Rolling Circular Mode Voting Buffer:**
-   $$\text{Headcount}_{mode} = \arg\max_{c} \sum_{i=1}^N \mathbf{1}(B[i] = c), \quad N = 9$$
-   A 9-frame FIFO circular buffer computes the statistical mode (majority vote), filtering out single-frame outliers.
-5. **Transition Debounce Streak:**
-   A candidate count transition requires a continuous streak of 4 consecutive cycles (~500ms) before `cvStableCount` switches, permanently stopping count jumping while occupants are seated.
+2. **Multi-Model Ensemble Fusion:**
+   - *Tier 1 (Hardware Accelerator):* Native Chromium/Edge `FaceDetector` API detecting up to 16 faces, expanded downward to upper-torso seating bounding boxes.
+   - *Tier 2 (Neural COCO-SSD):* Pre-warmed MobileNetV2 deep learning network detecting COCO class 0 (`person`) down to confidence $\ge 0.20$ to capture partially occluded occupants.
+   - *Tier 3 (Adaptive Multi-Peak Spatial Engine):* Wide-gamut YCrCb skin chrominance ($Cr \in [128, 185], Cb \in [78, 140]$, Fitzpatrick I–VI) + Sobel clothing gradients.
+   - *IoU Non-Maximum Merging:* Concurrently unifies candidates from all active tiers, merging face and torso boxes of the same person ($\text{IoU} > 0.45$ or containment $> 0.65$), while preserving adjacent distinct occupants ($\Delta x \ge 0.08 \cdot W_{canvas}$).
+3. **Side-by-Side Multi-Peak Extrema Splitter:**
+   Scans the horizontal energy distribution $E(x)$ for multiple local maxima. When 4 people sit shoulder-to-shoulder, the algorithm locates the intermediate energy troughs (valleys) between adjacent peaks to split the group into individual bounding boxes, preventing cluster collapse.
+4. **Precise 2D Box IoU Tracking & Deduplication:**
+   $$\text{IoU}(B_1, B_2) = \frac{\text{Area}(B_1 \cap B_2)}{\text{Area}(B_1 \cup B_2)}$$
+   Replaced 1D proximity heuristics with true 2D IoU ($\text{IoU} > 0.50$). Adjacent students sitting side-by-side maintain $\text{IoU} < 0.15$ and are never falsely merged.
+5. **Instant Track Confirmation & Responsive Mode Buffer:**
+   Confident detections ($\text{score} \ge 0.70$) confirm immediately on frame 1. A 5-frame rolling FIFO buffer computes the statistical mode with a rapid 2-cycle upward transition (~250ms), allowing groups of 4 people entering the frame to be recognized and locked in immediately without lag or count jumping.
 6. **Natural Mirror Toggle:** `[🪞 Mirrored / Normal]` button reflects webcam video horizontally for intuitive natural interaction while rendering all cyber text badges (`👤 PERSON #1 · 98% [ACTUAL]`) unmirrored and fully legible.
-7. **Ultra-Light RFB-320 ONNX Edge Worker (`cv/worker.py`):** Standalone Python edge process utilizing OpenCV DNN with an ONNX RFB-320 deep learning model (~1.2 MB), pure OpenCV spatial contour detector, and 5-frame median filtering for zero-overhead edge nodes.
+7. **Ultra-Light RFB-320 ONNX Edge Worker (`cv/worker.py`):** Standalone Python edge process utilizing OpenCV DNN with an ONNX RFB-320 deep learning model (~1.2 MB, tuned to $\text{conf\_thresh} = 0.45$), pure OpenCV spatial contour detector, and 5-frame median filtering for zero-overhead edge nodes.
 8. **100% Ephemeral RAM Privacy:** Zero video frames or face biometrics are ever persisted to disk or cloud; all buffers reside exclusively in volatile memory.
 
 ### 3.8. Groq Cloud LPU Acceleration & Multi-Tenant Custom Key Drawer (`backend/services/groq_llm.py`)

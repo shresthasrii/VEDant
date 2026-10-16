@@ -1592,7 +1592,7 @@ let cvTracker = {
   nextId: 1
 };
 
-// Anti-fluctuation headcount voting buffer and transition debounce
+// Anti-fluctuation headcount voting buffer and responsive transition debounce
 let cvCountBuffer = [];
 let cvStableCount = null;
 let cvPendingCount = null;
@@ -1600,7 +1600,7 @@ let cvPendingStreak = 0;
 
 function getStabilizedHeadcount(rawCount) {
   cvCountBuffer.push(rawCount);
-  if (cvCountBuffer.length > 9) cvCountBuffer.shift();
+  if (cvCountBuffer.length > 5) cvCountBuffer.shift();
 
   // Find statistical Mode (majority vote)
   const freq = {};
@@ -1621,11 +1621,13 @@ function getStabilizedHeadcount(rawCount) {
     return cvStableCount;
   }
 
-  // Require 4 consecutive cycles of the new mode before transitioning count
+  // Fast upward response for new occupants entering frame
   if (modeVal !== cvStableCount) {
     if (modeVal === cvPendingCount) {
       cvPendingStreak++;
-      if (cvPendingStreak >= 4) {
+      // Upward transitions confirm in 2 cycles (~250ms), downward in 3 cycles (~375ms)
+      const requiredStreak = (modeVal > cvStableCount) ? 2 : 3;
+      if (cvPendingStreak >= requiredStreak) {
         cvStableCount = modeVal;
         cvPendingStreak = 0;
       }
@@ -1832,37 +1834,56 @@ function detectPeopleInView(video, canvasWidth, canvasHeight) {
     clusters.push({ startX: startX, endX: W - 2, width: W - 2 - startX });
   }
 
-  // Peak prominence & valley splitter for multi-person seated rows
+  // Peak prominence & multi-person valley splitter for multi-person seated rows
   const finalClusters = [];
   clusters.forEach(function(c) {
     const w = c.width;
-    const midStart = Math.round(c.startX + w * 0.20);
-    const midEnd = Math.round(c.startX + w * 0.80);
-    let minVal = 9999, valleyX = -1;
-    for (let vx = midStart; vx <= midEnd; vx++) {
-      if (smoothed[vx] < minVal) {
-        minVal = smoothed[vx];
-        valleyX = vx;
+    // Scan for all local energy peaks within this cluster (heads / torsos)
+    const peaks = [];
+    for (let x = c.startX + 2; x <= c.endX - 2; x++) {
+      if (smoothed[x] >= THRESHOLD &&
+          smoothed[x] >= smoothed[x - 1] && smoothed[x] >= smoothed[x + 1] &&
+          smoothed[x] >= smoothed[Math.max(c.startX, x - 2)] && smoothed[x] >= smoothed[Math.min(c.endX, x + 2)]) {
+        if (peaks.length === 0 || (x - peaks[peaks.length - 1].x >= 10)) {
+          peaks.push({ x: x, val: smoothed[x] });
+        } else if (smoothed[x] > peaks[peaks.length - 1].val) {
+          peaks[peaks.length - 1] = { x: x, val: smoothed[x] };
+        }
       }
     }
 
-    let leftMax = 0, rightMax = 0;
-    for (let lx = c.startX; lx < valleyX; lx++) { if (smoothed[lx] > leftMax) leftMax = smoothed[lx]; }
-    for (let rx = valleyX; rx < c.endX; rx++) { if (smoothed[rx] > rightMax) rightMax = smoothed[rx]; }
-    const peakRef = Math.min(leftMax, rightMax);
-
-    // Deep valley splitting between two adjacent seated occupants
-    if (valleyX > 0 && minVal < peakRef * 0.70 && (valleyX - c.startX >= 6) && (c.endX - valleyX >= 6)) {
-      finalClusters.push({ startX: c.startX, endX: valleyX, width: valleyX - c.startX });
-      finalClusters.push({ startX: valleyX, endX: c.endX, width: c.endX - valleyX });
-      return;
-    } else if (w > 38) {
-      // Extremely wide group/bench cluster split
-      const midSplit = Math.round(c.startX + w * 0.5);
-      finalClusters.push({ startX: c.startX, endX: midSplit, width: midSplit - c.startX });
-      finalClusters.push({ startX: midSplit, endX: c.endX, width: c.endX - midSplit });
+    // If multiple peaks found, split at valleys between adjacent peaks
+    if (peaks.length >= 2) {
+      let prevBoundary = c.startX;
+      for (let p = 0; p < peaks.length - 1; p++) {
+        const p1 = peaks[p].x;
+        const p2 = peaks[p + 1].x;
+        let minVal = 9999, valleyX = Math.round((p1 + p2) / 2);
+        for (let vx = p1; vx <= p2; vx++) {
+          if (smoothed[vx] < minVal) {
+            minVal = smoothed[vx];
+            valleyX = vx;
+          }
+        }
+        finalClusters.push({ startX: prevBoundary, endX: valleyX, width: valleyX - prevBoundary });
+        prevBoundary = valleyX;
+      }
+      finalClusters.push({ startX: prevBoundary, endX: c.endX, width: c.endX - prevBoundary });
       return;
     }
+
+    // Wide cluster fallback: split evenly into estimated people count (approx 20-24px per person)
+    if (w >= 36) {
+      const k = Math.min(6, Math.max(2, Math.round(w / 22.0)));
+      const segW = w / k;
+      for (let s = 0; s < k; s++) {
+        const sx = Math.round(c.startX + s * segW);
+        const ex = Math.round(s === k - 1 ? c.endX : (c.startX + (s + 1) * segW));
+        finalClusters.push({ startX: sx, endX: ex, width: ex - sx });
+      }
+      return;
+    }
+
     finalClusters.push(c);
   });
 
@@ -1921,12 +1942,41 @@ function detectPeopleInView(video, canvasWidth, canvasHeight) {
   return detections;
 }
 
+// Precise 2D Box IoU and Area Containment Utilities
+function boxIoU(b1, b2) {
+  if (!b1 || !b2) return 0;
+  const x1 = Math.max(b1[0], b2[0]);
+  const y1 = Math.max(b1[1], b2[1]);
+  const x2 = Math.min(b1[0] + b1[2], b2[0] + b2[2]);
+  const y2 = Math.min(b1[1] + b1[3], b2[1] + b2[3]);
+  const interW = Math.max(0, x2 - x1);
+  const interH = Math.max(0, y2 - y1);
+  const interArea = interW * interH;
+  if (interArea <= 0) return 0;
+  const area1 = b1[2] * b1[3];
+  const area2 = b2[2] * b2[3];
+  return interArea / (area1 + area2 - interArea);
+}
+
+function boxContainment(inner, outer) {
+  if (!inner || !outer) return 0;
+  const x1 = Math.max(inner[0], outer[0]);
+  const y1 = Math.max(inner[1], outer[1]);
+  const x2 = Math.min(inner[0] + inner[2], outer[0] + outer[2]);
+  const y2 = Math.min(inner[1] + inner[3], outer[1] + outer[3]);
+  const interW = Math.max(0, x2 - x1);
+  const interH = Math.max(0, y2 - y1);
+  const interArea = interW * interH;
+  const innerArea = inner[2] * inner[3];
+  return innerArea > 0 ? (interArea / innerArea) : 0;
+}
+
 // Multi-Occupant Temporal Hysteresis Tracker
 function updateOccupantTracker(rawDetections, canvasWidth, canvasHeight) {
   // If no raw detections this frame, age all existing tracks
   if (!rawDetections || rawDetections.length === 0) {
     cvTracker.tracks.forEach(function(tr){ tr.missed++; });
-    cvTracker.tracks = cvTracker.tracks.filter(function(tr){ return tr.missed < 8; });
+    cvTracker.tracks = cvTracker.tracks.filter(function(tr){ return tr.missed < 6; });
     return cvTracker.tracks.filter(function(tr){ return tr.confirmed && tr.missed <= 3; });
   }
 
@@ -1943,7 +1993,8 @@ function updateOccupantTracker(rawDetections, canvasWidth, canvasHeight) {
       const cCX = cand.bbox[0] + cand.bbox[2] / 2;
       const cCY = cand.bbox[1] + cand.bbox[3] / 2;
       const dist = Math.hypot(trCX - cCX, trCY - cCY);
-      if (dist < bestDist && dist < canvasWidth * 0.32) {
+      // Hungarian-style closest match within 22% of canvas width
+      if (dist < bestDist && dist < canvasWidth * 0.22) {
         bestDist = dist;
         bestIdx = idx;
       }
@@ -1952,16 +2003,16 @@ function updateOccupantTracker(rawDetections, canvasWidth, canvasHeight) {
     if (bestIdx >= 0) {
       const matched = unmatchedRaw.splice(bestIdx, 1)[0];
       track.targetBox = matched.bbox;
-      track.score = track.score * 0.65 + matched.score * 0.35;
+      track.score = track.score * 0.60 + matched.score * 0.40;
       track.hits++;
       track.missed = 0;
-      if (track.hits >= 2) track.confirmed = true;
+      track.confirmed = true;
     } else {
       track.missed++;
     }
   });
 
-  // Create new tentative tracks for unmatched detections
+  // Create new tracks for unmatched detections
   unmatchedRaw.forEach(function(cand) {
     cvTracker.tracks.push({
       id: cvTracker.nextId++,
@@ -1970,27 +2021,32 @@ function updateOccupantTracker(rawDetections, canvasWidth, canvasHeight) {
       score: cand.score,
       hits: 1,
       missed: 0,
-      confirmed: false // Requires 2 consecutive hits to confirm!
+      confirmed: (cand.score >= 0.70) // Solid detections confirmed immediately!
     });
   });
 
-  // Spatial Overlap Merging: if two tracks have centers closer than 18% of screen width,
-  // merge them so a single occupant is never double-counted
+  // Precise 2D Box IoU Merging: Only merge if boxes truly overlap in 2D space
   for (let i = 0; i < cvTracker.tracks.length; i++) {
     for (let j = i + 1; j < cvTracker.tracks.length; j++) {
       const t1 = cvTracker.tracks[i];
       const t2 = cvTracker.tracks[j];
-      if (!t1 || !t2 || t1.missed >= 8 || t2.missed >= 8) continue;
+      if (!t1 || !t2 || t1.missed >= 6 || t2.missed >= 6) continue;
+      const iou = boxIoU(t1.targetBox, t2.targetBox);
       const c1 = t1.targetBox[0] + t1.targetBox[2] / 2;
       const c2 = t2.targetBox[0] + t2.targetBox[2] / 2;
-      if (Math.abs(c1 - c2) < canvasWidth * 0.18) {
+      const centerDistX = Math.abs(c1 - c2);
+      const cont1 = boxContainment(t1.targetBox, t2.targetBox);
+      const cont2 = boxContainment(t2.targetBox, t1.targetBox);
+
+      // Only merge if high 2D IoU (>0.50) OR high containment with very small center offset (<8% width)
+      if (iou > 0.50 || ((cont1 > 0.70 || cont2 > 0.70) && centerDistX < canvasWidth * 0.08)) {
         if (t1.hits >= t2.hits) {
           t1.hits += t2.hits;
-          if (t1.hits >= 2) t1.confirmed = true;
+          t1.confirmed = true;
           t2.missed = 999;
         } else {
           t2.hits += t1.hits;
-          if (t2.hits >= 2) t2.confirmed = true;
+          t2.confirmed = true;
           t1.missed = 999;
         }
       }
@@ -1998,7 +2054,7 @@ function updateOccupantTracker(rawDetections, canvasWidth, canvasHeight) {
   }
 
   // Filter out expired tracks
-  cvTracker.tracks = cvTracker.tracks.filter(function(tr){ return tr.missed < 8; });
+  cvTracker.tracks = cvTracker.tracks.filter(function(tr){ return tr.missed < 6; });
   return cvTracker.tracks.filter(function(tr){ return tr.confirmed && tr.missed <= 3; });
 }
 
@@ -2175,50 +2231,91 @@ async function startWebcamDetector() {
 
       cvInferenceBusy = true;
       try {
-        let rawDetections = [];
-        let engineName = '⚡ ADAPTIVE MULTI-PERSON TRACKER';
+        let candidates = [];
+        let engineNames = [];
 
         // Tier 1: Hardware Chrome / Edge FaceDetector Accelerator API
-        if (window.FaceDetector && rawDetections.length === 0) {
+        if (window.FaceDetector) {
           try {
             if (!state.nativeFaceDetector) {
-              state.nativeFaceDetector = new FaceDetector({ fastMode: true, maxDetectedFaces: 12 });
+              state.nativeFaceDetector = new FaceDetector({ fastMode: false, maxDetectedFaces: 16 });
             }
             const faces = await state.nativeFaceDetector.detect(video);
             if (faces && faces.length > 0) {
-              rawDetections = faces.map(function(f, i) {
+              faces.forEach(function(f, i) {
                 const fb = f.boundingBox;
-                const padW = fb.width * 0.45;
+                const padW = fb.width * 0.40;
                 const bx = Math.max(0, fb.x - padW);
-                const by = Math.max(0, fb.y - fb.height * 0.25);
+                const by = Math.max(0, fb.y - fb.height * 0.20);
                 const bw = Math.min(canvas.width - bx, fb.width + padW * 2);
-                const bh = Math.min(canvas.height - by, fb.height * 2.9);
-                return { id: i + 1, bbox: [bx, by, bw, bh], score: 0.98 };
+                const bh = Math.min(canvas.height - by, fb.height * 3.2);
+                candidates.push({ bbox: [bx, by, bw, bh], score: 0.98, type: 'face' });
               });
-              engineName = '⚡ HARDWARE ACCELERATOR (Chrome Engine)';
+              engineNames.push('FaceDetector');
             }
           } catch(e) {}
         }
 
         // Tier 2: Neural COCO-SSD Deep Learning
-        if (cvModel && rawDetections.length === 0) {
+        if (cvModel) {
           try {
             const preds = await cvModel.detect(video);
-            const people = preds.filter(function(p){ return p.class === 'person' && p.score >= 0.30; });
+            const people = preds.filter(function(p){ return p.class === 'person' && p.score >= 0.20; });
             if (people.length > 0) {
-              rawDetections = people.map(function(p, i){
-                return { id: i + 1, bbox: p.bbox, score: p.score };
+              people.forEach(function(p){
+                candidates.push({ bbox: p.bbox, score: p.score, type: 'coco' });
               });
-              engineName = '⚡ NEURAL COCO-SSD (Deep Learning)';
+              engineNames.push('COCO-SSD');
             }
           } catch(e) {}
         }
 
-        // Tier 3: Adaptive Anatomical & Spatial Presence Engine (Universal In-Browser)
-        if (rawDetections.length === 0) {
-          rawDetections = detectPeopleInView(video, canvas.width, canvas.height);
-          engineName = '⚡ ADAPTIVE ANATOMICAL TRACKER (Edge Vision)';
+        // Tier 3: Adaptive Multi-Peak Spatial Presence Engine
+        // Always run if candidates has fewer than 4 people or if no neural/face detector ran
+        if (candidates.length < 4) {
+          try {
+            const spatialDets = detectPeopleInView(video, canvas.width, canvas.height);
+            if (spatialDets && spatialDets.length > 0) {
+              spatialDets.forEach(function(sd) {
+                candidates.push({ bbox: sd.bbox, score: sd.score, type: 'spatial' });
+              });
+              engineNames.push('Adaptive Spatial');
+            }
+          } catch(e) {}
         }
+
+        // Ensemble Fusion with 2D IoU Non-Maximum Merging
+        candidates.sort(function(a, b){ return b.score - a.score; });
+        const rawDetections = [];
+        candidates.forEach(function(cand) {
+          let isDup = false;
+          for (let i = 0; i < rawDetections.length; i++) {
+            const acc = rawDetections[i];
+            const iou = boxIoU(cand.bbox, acc.bbox);
+            const c1 = cand.bbox[0] + cand.bbox[2] / 2;
+            const c2 = acc.bbox[0] + acc.bbox[2] / 2;
+            const distX = Math.abs(c1 - c2);
+            const cont1 = boxContainment(cand.bbox, acc.bbox);
+            const cont2 = boxContainment(acc.bbox, cand.bbox);
+
+            if (iou > 0.45 || ((cont1 > 0.65 || cont2 > 0.65) && distX < canvas.width * 0.08)) {
+              acc.score = Math.max(acc.score, cand.score);
+              isDup = true;
+              break;
+            }
+          }
+          if (!isDup) {
+            rawDetections.push({
+              id: rawDetections.length + 1,
+              bbox: cand.bbox,
+              score: cand.score
+            });
+          }
+        });
+
+        const engineName = engineNames.length > 0
+          ? '⚡ FUSED ' + engineNames.join(' + ')
+          : '⚡ ADAPTIVE MULTI-PERSON TRACKER';
 
         // Feed into temporal hysteresis tracker
         const activeConfirmedTracks = updateOccupantTracker(rawDetections, canvas.width, canvas.height);

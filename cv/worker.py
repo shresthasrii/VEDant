@@ -46,7 +46,7 @@ def generate_rfb_priors(target_size=(320, 240)):
 
 class OnnxPersonDetector:
     """Ultra-fast neural detector running on OpenCV DNN (<10ms inference)."""
-    def __init__(self, model_path="cv/models/version-RFB-320.onnx", conf_thresh=0.65):
+    def __init__(self, model_path="cv/models/version-RFB-320.onnx", conf_thresh=0.45):
         import cv2
         self.cv2 = cv2
         self.net = cv2.dnn.readNetFromONNX(model_path)
@@ -142,11 +142,11 @@ class SpatialContourPersonDetector:
 
         for c in contours:
             area = self.cv2.contourArea(c)
-            if area < (proc_w * proc_h * 0.035):
+            if area < (proc_w * proc_h * 0.015):
                 continue
             x, y, cw, ch = self.cv2.boundingRect(c)
             aspect = ch / max(1, cw)
-            if 0.75 <= aspect <= 3.4:
+            if 0.70 <= aspect <= 3.8:
                 people.append({
                     "box": (int(x * scale_x), int(y * scale_y), int(cw * scale_x), int(ch * scale_y)),
                     "score": 0.94
@@ -186,7 +186,7 @@ def run_worker(room_id: str, source: str, backend_url: str, fps: float = 1.0, so
             # Try OpenCV ONNX Neural Engine
             if detector is None and os.path.exists("cv/models/version-RFB-320.onnx"):
                 try:
-                    onnx_det = OnnxPersonDetector("cv/models/version-RFB-320.onnx", conf_thresh=0.65)
+                    onnx_det = OnnxPersonDetector("cv/models/version-RFB-320.onnx", conf_thresh=0.45)
                     detector = ("onnx", onnx_det)
                     engine_name = "OpenCV DNN Neural Engine (RFB-320 ONNX)"
                     print(f"[CV Worker] {engine_name} initialized successfully.")

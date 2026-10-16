@@ -81,12 +81,10 @@ VERDANT provides a multi-layer, zero-storage computer vision system that runs bo
 
 ### 1. In-Browser Webcam Viewfinder
 - **Decoupled Architecture**: 60 FPS smooth rendering loop with Exponential Moving Average ($\alpha = 0.32$) coordinate interpolation, decoupled from an asynchronous 8 Hz inference loop.
-- **Cascade of 3 Vision Engines**:
-  1. *Hardware Accelerator*: Native Chromium/Edge `FaceDetector` API.
-  2. *Neural COCO-SSD*: Pre-warmed MobileNetV2 deep learning person detector.
-  3. *Adaptive Anatomical Spatial Engine*: Wide-gamut YCrCb skin chrominance ($Cr \in [128, 185], Cb \in [78, 140]$, Fitzpatrick I–VI) + Sobel clothing/torso edge silhouette gradients + background wall contrast adaptation.
-- **Universal Seated User Prior**: Instantly detects and holds onto a seated user in front of their laptop/desk camera with 96–99% confidence, never dropping count when motionless.
-- **Anti-Fluctuation Statistical Mode Stabilizer**: Rolling 9-frame buffer with statistical mode majority voting and 4-cycle transition debounce (~500ms), eliminating rapid count jumping.
+- **Multi-Model Ensemble Fusion**: Concurrently runs Hardware `FaceDetector` (up to 16 faces), Neural COCO-SSD (`person` class, threshold 0.20), and the Adaptive Multi-Peak Spatial Engine. Detections across all 3 engines are unified via 2D IoU Non-Maximum Merging, ensuring 4 or more people in frame are accurately detected even with partial profile or table occlusion.
+- **Side-by-Side Multi-Person Extrema Splitter**: Analyzes local energy peaks and valley contours to segment occupants seated shoulder-to-shoulder into distinct person bounding boxes, preventing cluster collapse.
+- **Precise 2D IoU Deduplication**: Replaced 1D proximity merging with true 2D Intersection-over-Union ($\text{IoU} > 0.50$) and area containment ($\text{Cont} > 0.70, \Delta x < 0.08$), preserving separate adjacent occupants without false merges.
+- **Instant Track Confirmation & Responsive Buffer**: Immediately confirms confident detections ($\ge 0.70$) on frame 1, with a 5-frame rolling mode voting buffer and 2-cycle upward transition (~250ms), eliminating detection lag and headcount flicker.
 - **Natural Mirror View**: `[🪞 Mirrored / Normal]` toggle in the viewfinder. Flips video for natural interaction while keeping bounding box labels (`👤 PERSON #1 · 98% [ACTUAL]`) unmirrored and perfectly readable.
 - **Non-Blocking Ingest & Hold**: `[⚡ Push & Lock to Backend]` latches the count, updates the SQLite database across schedule hours (14:00–16:00), refreshes the 24H telemetry timeline in-place, and triggers instant Digital Twin and RoomWise recalculation with a non-blocking toast notification.
 
