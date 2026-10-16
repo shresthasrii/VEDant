@@ -204,10 +204,38 @@ def init_db():
         )
         """)
 
+        # Schedule Requests & Timetable Workflows
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS schedule_requests (
+            id TEXT PRIMARY KEY,
+            creator_name TEXT NOT NULL,
+            course_code TEXT NOT NULL,
+            course_name TEXT NOT NULL,
+            section TEXT NOT NULL DEFAULT 'A',
+            instructor TEXT NOT NULL,
+            room_id TEXT NOT NULL,
+            day_of_week TEXT NOT NULL DEFAULT 'Monday',
+            preferred_start_hour INTEGER NOT NULL,
+            duration_hours INTEGER NOT NULL DEFAULT 2,
+            enrolled INTEGER NOT NULL DEFAULT 20,
+            required_equipment TEXT,
+            status TEXT NOT NULL DEFAULT 'PENDING',
+            allocated_start_hour INTEGER,
+            allocated_end_hour INTEGER,
+            allocated_room_id TEXT,
+            notification_message TEXT,
+            created_at TEXT NOT NULL,
+            reviewed_at TEXT,
+            reviewed_by TEXT,
+            FOREIGN KEY(room_id) REFERENCES rooms(id)
+        )
+        """)
+
         # ── Performance indexes ───────────────────────────────────────────────
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_occ_room_id   ON occupancy_readings(room_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_occ_room_hour ON occupancy_readings(room_id, hour);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status  ON risk_alerts(status);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_energy_room_hour ON energy_readings(room_id, hour);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_classes_room_day ON classes(room_id, day_of_week);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_requests_status ON schedule_requests(status);")
 

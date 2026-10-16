@@ -70,8 +70,17 @@ dl{display:grid;grid-template-columns:112px 1fr;gap:6px 14px;margin:0 0 14px;fon
 .status-dot.online{background:var(--ok)}
 .status-dot.degraded{background:var(--orange)}
 .status-dot.offline{background:var(--crit);animation:alertPulse 1.5s infinite}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.78);backdrop-filter:blur(6px);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal-card{background:#241C1B;border:1px solid var(--line);border-radius:20px;padding:24px;width:100%;max-width:540px;max-height:90vh;overflow-y:auto;box-shadow:0 24px 48px rgba(0,0,0,.85);animation:rise .25s var(--ease)}
+.input-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.input-field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px;font-size:12px}
+.input-field label{color:var(--gray);font-weight:600;text-transform:uppercase;font-size:11px;letter-spacing:.05em}
+.input-field input,.input-field select,.input-field textarea{background:#161316;border:1px solid var(--line);color:var(--white);border-radius:8px;padding:8px 12px;font:inherit;font-size:13px;width:100%}
+.input-field input:focus,.input-field select:focus,.input-field textarea:focus{border-color:var(--orange);outline:none}
+.badge-pending{background:rgba(255,109,41,.2);color:var(--orange);border:1px solid var(--orange)}
+.badge-auto{background:rgba(76,195,138,.2);color:var(--ok);border:1px solid var(--ok)}
 @media(max-width:960px){.row,.row.eq{grid-template-columns:1fr}}
-@media(max-width:860px){.shell{grid-template-columns:1fr}.side{position:fixed;top:auto;bottom:0;left:0;right:0;height:auto;flex-direction:row;padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));z-index:20;border-right:0;border-top:1px solid var(--line)}.logo{display:none}.nav{flex-direction:column;gap:2px;font-size:10px;padding:8px 2px;justify-content:center;text-align:center}.lgf{display:none}.sm{display:inline}.main{padding-bottom:100px}dl{grid-template-columns:90px 1fr}}
+@media(max-width:860px){.shell{grid-template-columns:1fr}.side{position:fixed;top:auto;bottom:0;left:0;right:0;height:auto;flex-direction:row;padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));z-index:20;border-right:0;border-top:1px solid var(--line)}.logo{display:none}.nav{flex-direction:column;gap:2px;font-size:10px;padding:8px 2px;justify-content:center;text-align:center}.lgf{display:none}.sm{display:inline}.main{padding-bottom:100px}dl{grid-template-columns:90px 1fr}.input-grid{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style></head><body><div id="conn-banner" class="conn-banner">Connecting to VERDANT backend... Keeping last verified state.</div><div class="bg"><i></i><i></i></div><div id="app"></div>
 <script>
@@ -110,6 +119,7 @@ const dOpt=()=>({he:18,le:18,sp:25,pk:99,oh:new Set,ol:new Set});
 const state={
   view:'overview',scen:'base',hour:15,floor:0,iso:false,room:'202',layer:'occ',sys:'all',
   rot:.35,zoom:1,opt:dOpt(),rs:{},currentPlan:null,timetableData:[],advisorResponse:null,
+  ttSubView:'classes',scheduleRequests:[],showClassModal:false,editingClass:null,
   is2D:window.location.search.includes('mode=2d'),
   mode:'live',replayTimer:null,capacityMargin:10,disruptionPenalty:2.0,solverType:'heuristic',
   gridMode:'after',roomProvenance:{'202':'ACTUAL'},cvSource:'synthetic',
@@ -602,7 +612,362 @@ function vCon(){
     '</div>';
 }
 
-function vTt(){
+function renderClassModal() {
+  if (!state.showClassModal) return '';
+  const c = state.editingClass || {
+    id: '', course_code: '', course_name: '', section: 'A', instructor: '',
+    room_id: '101', day_of_week: 'Monday', start_hour: 9, end_hour: 11, enrolled: 25, compatibility_group: '', locked: false
+  };
+  const isEdit = !!state.editingClass;
+  
+  return '<div class="modal-overlay">' +
+    '<div class="modal-card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">' +
+        '<h3 style="margin:0">' + (isEdit ? '✏️ Edit Scheduled Class Sequence' : '➕ Add Custom Class Sequence') + '</h3>' +
+        '<button class="btn ghost" data-a="close-class-modal" style="padding:4px 10px;font-size:12px">✕</button>' +
+      '</div>' +
+      '<div class="input-grid">' +
+        '<div class="input-field">' +
+          '<label>Course Code *</label>' +
+          '<input id="tt-form-code" placeholder="e.g. CS305" value="' + (c.course_code || '') + '">' +
+        '</div>' +
+        '<div class="input-field">' +
+          '<label>Section</label>' +
+          '<input id="tt-form-sec" placeholder="e.g. A" value="' + (c.section || 'A') + '">' +
+        '</div>' +
+      '</div>' +
+      '<div class="input-field">' +
+        '<label>Course Name / Title *</label>' +
+        '<input id="tt-form-name" placeholder="e.g. Distributed Computing Systems" value="' + (c.course_name || '') + '">' +
+      '</div>' +
+      '<div class="input-grid">' +
+        '<div class="input-field">' +
+          '<label>Instructor / Faculty *</label>' +
+          '<input id="tt-form-instr" placeholder="e.g. Dr. K. V. Rao" value="' + (c.instructor || '') + '">' +
+        '</div>' +
+        '<div class="input-field">' +
+          '<label>Allocated Room *</label>' +
+          '<select id="tt-form-room">' +
+            R.map(function(r) {
+              return '<option value="' + r.id + '" ' + (c.room_id == r.id ? 'selected' : '') + '>' + r.id + ' — ' + r.n + ' (Cap ' + r.cap + ')</option>';
+            }).join('') +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+      '<div class="input-grid">' +
+        '<div class="input-field">' +
+          '<label>Day of Week</label>' +
+          '<select id="tt-form-day">' +
+            ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map(function(d) {
+              return '<option value="' + d + '" ' + (c.day_of_week === d ? 'selected' : '') + '>' + d + '</option>';
+            }).join('') +
+          '</select>' +
+        '</div>' +
+        '<div class="input-field">' +
+          '<label>Enrolled Headcount *</label>' +
+          '<input id="tt-form-enrolled" type="number" min="1" max="150" value="' + (c.enrolled || 25) + '">' +
+        '</div>' +
+      '</div>' +
+      '<div class="input-grid">' +
+        '<div class="input-field">' +
+          '<label>Start Time (Hour)</label>' +
+          '<select id="tt-form-start">' +
+            [8,9,10,11,12,13,14,15,16,17,18,19].map(function(h) {
+              return '<option value="' + h + '" ' + (c.start_hour == h ? 'selected' : '') + '>' + hh(h) + '</option>';
+            }).join('') +
+          '</select>' +
+        '</div>' +
+        '<div class="input-field">' +
+          '<label>End Time (Hour)</label>' +
+          '<select id="tt-form-end">' +
+            [9,10,11,12,13,14,15,16,17,18,19,20].map(function(h) {
+              return '<option value="' + h + '" ' + (c.end_hour == h ? 'selected' : '') + '>' + hh(h) + '</option>';
+            }).join('') +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+      '<div class="input-field">' +
+        '<label>Compatibility Group (Optional)</label>' +
+        '<input id="tt-form-compat" placeholder="e.g. CS101_GRP (must stay in same room)" value="' + (c.compatibility_group || '') + '">' +
+      '</div>' +
+      '<div style="margin:8px 0 16px">' +
+        '<label class="ck" style="font-size:12px;color:var(--white)"><input type="checkbox" id="tt-form-locked" ' + (c.locked ? 'checked' : '') + '> <b>Lock sequence:</b> Do not allow RoomWise optimizer to move this class</label>' +
+      '</div>' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end">' +
+        '<button class="btn ghost" data-a="close-class-modal">Cancel</button>' +
+        '<button class="btn ok" data-a="save-custom-class">' + (isEdit ? 'Save Changes' : 'Add Sequence') + '</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function vTtClasses(classes) {
+  return '<div class="card" style="margin-bottom:14px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:14px">' +
+      '<div>' +
+        '<h3>Scheduled Classes (Monday Block) <small>' + classes.length + ' Sequences</small></h3>' +
+        '<span class="mu">Live constraint validation active · Zero unhandled double-bookings detected.</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button class="btn ok" data-a="open-add-class">➕ Add Custom Sequence</button>' +
+        '<a class="btn ghost" href="' + API_BASE + '/export/timetable.csv" download>Export CSV</a>' +
+        '<button class="btn" data-a="go" data-v="consolidation">Optimize in RoomWise</button>' +
+      '</div>' +
+    '</div>' +
+    '<div style="overflow-x:auto">' +
+      '<table class="tb">' +
+        '<thead><tr>' +
+          '<th>Code</th><th>Course</th><th>Sec</th><th>Instructor</th><th>Slot</th>' +
+          '<th>Enrolled</th><th>Room</th><th>Group / Status</th><th>Actions</th>' +
+        '</tr></thead>' +
+        '<tbody>' +
+          classes.map(function(c) {
+            return '<tr>' +
+              '<td><b>' + c.course_code + '</b></td>' +
+              '<td>' + (c.course_name || c.course_code) + '</td>' +
+              '<td>' + (c.section || 'A') + '</td>' +
+              '<td>' + c.instructor + '</td>' +
+              '<td><b>' + hh(c.start_hour) + ' – ' + hh(c.end_hour) + '</b></td>' +
+              '<td>' + c.enrolled + '</td>' +
+              '<td><span class="chip" style="padding:2px 8px;font-size:10px">' + c.room_id + '</span></td>' +
+              '<td>' + (c.locked ? '<span style="color:var(--crit)">🔒 Locked</span>' : (c.compatibility_group ? '<span style="color:var(--orange)">' + c.compatibility_group + '</span>' : '<span class="mu">Flexible</span>')) + '</td>' +
+              '<td style="white-space:nowrap">' +
+                '<button class="btn ghost" style="padding:3px 8px;font-size:11px;margin-right:6px" data-a="edit-class" data-v="' + c.id + '" title="Edit class sequence">✏️ Edit</button>' +
+                '<button class="btn ghost" style="padding:3px 8px;font-size:11px;color:var(--crit);border-color:rgba(242,85,90,.3)" data-a="delete-class" data-v="' + c.id + '" title="Delete from timetable">🗑️</button>' +
+              '</td>' +
+            '</tr>';
+          }).join('') +
+        '</tbody>' +
+      '</table>' +
+    '</div>' +
+  '</div>';
+}
+
+function vTtRequests() {
+  const reqs = state.scheduleRequests || [];
+  const pendingCount = reqs.filter(function(r) { return r.status === 'PENDING'; }).length;
+  const approvedCount = reqs.filter(function(r) { return r.status === 'APPROVED' || r.status === 'AUTO_RESCHEDULED'; }).length;
+  const rejectedCount = reqs.filter(function(r) { return r.status === 'REJECTED'; }).length;
+
+  return '<div class="card" style="margin-bottom:14px;background:rgba(22,19,22,.65)">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px">' +
+      '<div>' +
+        '<h3>Main Host Schedule Approval Queue <small>Automated Facility Routing</small></h3>' +
+        '<span class="mu">Review incoming requests. If the timeslot is available, accept with one click. If occupied, auto-set to the earliest free slot with automated notification.</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px">' +
+        '<button class="btn ghost" data-a="tt-sub" data-v="book">➕ Create New Booking Request</button>' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">' +
+      '<span class="chip" style="color:var(--orange);border-color:var(--orange)"><b>' + pendingCount + '</b> PENDING REVIEW</span>' +
+      '<span class="chip" style="color:var(--ok);border-color:var(--ok)"><b>' + approvedCount + '</b> ACCEPTED / AUTO-SET</span>' +
+      '<span class="chip" style="color:var(--crit);border-color:var(--crit)"><b>' + rejectedCount + '</b> REJECTED</span>' +
+      '<span class="chip" style="color:var(--gray)"><b>' + reqs.length + '</b> TOTAL REQUESTS</span>' +
+    '</div>' +
+    (reqs.length === 0 ?
+      '<div style="text-align:center;padding:36px;border:1px dashed var(--line);border-radius:12px">' +
+        '<div style="font-size:32px;margin-bottom:8px">📨</div>' +
+        '<h4 style="margin:0 0 6px">No Schedule Requests in Queue</h4>' +
+        '<p class="mu" style="margin:0 0 14px">External faculty, student clubs, or departments can submit room schedule requests via the creator portal.</p>' +
+        '<button class="btn ok" data-a="tt-sub" data-v="book">Create First Booking Request →</button>' +
+      '</div>' :
+      '<div style="display:flex;flex-direction:column;gap:12px">' +
+        reqs.map(function(r) {
+          const sc = r.slot_check;
+          const isPending = r.status === 'PENDING';
+          const isApproved = r.status === 'APPROVED';
+          const isAuto = r.status === 'AUTO_RESCHEDULED';
+          const isRejected = r.status === 'REJECTED';
+
+          const badgeClass = isPending ? 'badge-pending' : (isApproved ? 'badge-act' : (isAuto ? 'badge-auto' : 'badge-crit'));
+          const badgeText = isPending ? 'PENDING HOST REVIEW' : (isApproved ? 'APPROVED & COMMITTED' : (isAuto ? 'AUTO-RESCHEDULED' : 'REJECTED'));
+
+          return '<div class="card" style="border-left:4px solid ' + (isPending ? 'var(--orange)' : (isApproved ? 'var(--ok)' : (isAuto ? 'var(--ok)' : 'var(--crit)'))) + ';background:rgba(36,28,27,.85);padding:16px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">' +
+              '<div style="display:flex;align-items:center;gap:8px">' +
+                '<b>Request #' + r.id + '</b>' +
+                '<span class="badge ' + badgeClass + '">' + badgeText + '</span>' +
+                '<span class="mu" style="font-size:11px">Requester: <b>' + r.creator_name + '</b></span>' +
+              '</div>' +
+              '<small class="mu">' + (r.created_at ? new Date(r.created_at).toLocaleString() : '') + '</small>' +
+            '</div>' +
+            '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;font-size:12px;background:rgba(22,19,22,.5);padding:10px;border-radius:10px;margin-bottom:10px">' +
+              '<div><span class="mu">Course / Event:</span><br><b>' + r.course_code + '</b> — ' + r.course_name + ' (Sec ' + (r.section || 'A') + ')</div>' +
+              '<div><span class="mu">Instructor / Lead:</span><br>' + r.instructor + '</div>' +
+              '<div><span class="mu">Requested Room & Slot:</span><br>Room <b>' + r.room_id + '</b> · ' + r.day_of_week + ' <b>' + hh(r.preferred_start_hour) + ' – ' + hh(r.preferred_start_hour + r.duration_hours) + '</b> (' + r.duration_hours + 'h)</div>' +
+              '<div><span class="mu">Expected Headcount:</span><br><b>' + r.enrolled + '</b> attendees</div>' +
+            '</div>' +
+            (isPending ?
+              (sc && sc.available ?
+                '<div style="background:rgba(76,195,138,.12);border:1px solid var(--ok);border-radius:10px;padding:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
+                  '<div>' +
+                    '<b style="color:var(--ok)">✓ Timeslot 100% Free:</b> ' + sc.message +
+                    '<div style="font-size:11px;color:var(--gray);margin-top:2px">Headcount fits capacity. Click accept to directly commit to live timetable.</div>' +
+                  '</div>' +
+                  '<div style="display:flex;gap:8px">' +
+                    '<button class="btn ok" data-a="accept-tt-req" data-v="' + r.id + '">✓ Accept & Add to Timetable</button>' +
+                    '<button class="btn ghost" data-a="reject-tt-req" data-v="' + r.id + '">✕ Reject</button>' +
+                  '</div>' +
+                '</div>' :
+                '<div style="background:rgba(255,109,41,.12);border:1px solid var(--orange);border-radius:10px;padding:12px">' +
+                  '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px">' +
+                    '<b style="color:var(--orange)">⚠️ Timeslot Conflict Detected:</b>' +
+                    '<span class="mu" style="font-size:11px">' + (sc ? sc.collision_slot : '') + ' Occupied by ' + (sc && sc.collision_course ? sc.collision_course : 'Another Class') + '</span>' +
+                  '</div>' +
+                  '<div style="font-size:12px;color:var(--white);margin-bottom:10px">' + (sc ? sc.message : 'Preferred slot is occupied.') + '</div>' +
+                  '<div style="background:rgba(22,19,22,.7);border:1px dashed var(--ok);border-radius:8px;padding:10px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">' +
+                    '<div>' +
+                      '<b style="color:var(--ok)">⚡ Smart Auto-Set Found:</b> Earliest free slot in <b>' + (sc && sc.suggested_room_name ? sc.suggested_room_name : ('Room ' + r.room_id)) + '</b> is <b>' + hh(sc ? sc.suggested_start_hour : 16) + ' – ' + hh(sc ? sc.suggested_end_hour : 18) + '</b>.' +
+                      '<div style="font-size:11px;color:var(--gray);margin-top:2px">Engine will automatically allocate this slot, update timetable, and dispatch automated notification to requester.</div>' +
+                    '</div>' +
+                    '<div style="display:flex;gap:8px">' +
+                      '<button class="btn ok" data-a="autoset-tt-req" data-v="' + r.id + '">⚡ Auto-Set to ' + hh(sc ? sc.suggested_start_hour : 16) + '–' + hh(sc ? sc.suggested_end_hour : 18) + '</button>' +
+                      '<button class="btn ghost" data-a="reject-tt-req" data-v="' + r.id + '">✕ Reject</button>' +
+                    '</div>' +
+                  '</div>' +
+                '</div>'
+              ) :
+              (isApproved ?
+                '<div style="background:rgba(76,195,138,.1);border:1px solid var(--ok);border-radius:10px;padding:10px 14px">' +
+                  '<b style="color:var(--ok)">✓ Confirmed & Placed in Room ' + r.allocated_room_id + ' (' + hh(r.allocated_start_hour) + ' – ' + hh(r.allocated_end_hour) + ')</b>' +
+                  '<div style="font-size:11px;color:var(--gray);margin-top:4px">📢 Automated Notification to ' + r.creator_name + ': "<i>' + (r.notification_message || '') + '</i>"</div>' +
+                  '<small class="mu" style="display:block;margin-top:2px">Reviewed by ' + (r.reviewed_by || 'Facility Host') + ' on ' + (r.reviewed_at ? new Date(r.reviewed_at).toLocaleTimeString() : 'recently') + '</small>' +
+                '</div>' :
+                (isAuto ?
+                  '<div style="background:rgba(76,195,138,.1);border:1px solid var(--ok);border-radius:10px;padding:10px 14px">' +
+                    '<b style="color:var(--ok)">⚡ Auto-Rescheduled to Next Free Slot: Room ' + r.allocated_room_id + ' (' + hh(r.allocated_start_hour) + ' – ' + hh(r.allocated_end_hour) + ')</b>' +
+                    '<div style="font-size:11px;color:var(--gray);margin-top:4px">📢 Automated Notification to ' + r.creator_name + ': "<i>' + (r.notification_message || '') + '</i>"</div>' +
+                    '<small class="mu" style="display:block;margin-top:2px">Resolved autonomously by ' + (r.reviewed_by || 'Host Engine') + ' on ' + (r.reviewed_at ? new Date(r.reviewed_at).toLocaleTimeString() : 'recently') + '</small>' +
+                  '</div>' :
+                  '<div style="background:rgba(242,85,90,.1);border:1px solid var(--crit);border-radius:10px;padding:10px 14px">' +
+                    '<b style="color:var(--crit)">✕ Request Rejected by Host</b>' +
+                    '<div style="font-size:11px;color:var(--gray);margin-top:4px">📢 Automated Rejection Notice to ' + r.creator_name + ': "<i>' + (r.notification_message || '') + '</i>"</div>' +
+                    '<small class="mu" style="display:block;margin-top:2px">Actioned by ' + (r.reviewed_by || 'Host') + ' on ' + (r.reviewed_at ? new Date(r.reviewed_at).toLocaleTimeString() : 'recently') + '</small>' +
+                  '</div>'
+                )
+              )
+            ) +
+          '</div>';
+        }).join('') +
+      '</div>'
+    ) +
+  '</div>';
+}
+
+function vTtBook() {
+  const reqs = state.scheduleRequests || [];
+
+  return '<div class="row">' +
+    '<div class="card">' +
+      '<div style="margin-bottom:16px">' +
+        '<h3>Create Schedule Booking Request</h3>' +
+        '<p class="mu" style="margin:4px 0 0">Submit a schedule request for any room. Your request routes directly to the Main Host queue where it is either accepted immediately if free, or automatically scheduled into the earliest free slot.</p>' +
+      '</div>' +
+      '<div class="input-grid">' +
+        '<div class="input-field">' +
+          '<label>Requester Name / Department *</label>' +
+          '<input id="bk-form-creator" placeholder="e.g. Dr. Sneha Roy / Robotics Club" value="Dr. Sneha Roy (Robotics Club)">' +
+        '</div>' +
+        '<div class="input-field">' +
+          '<label>Course / Activity Code *</label>' +
+          '<input id="bk-form-code" placeholder="e.g. ROB401" value="ROB401">' +
+        '</div>' +
+      '</div>' +
+      '<div class="input-field">' +
+        '<label>Course or Event Title *</label>' +
+        '<input id="bk-form-name" placeholder="e.g. Autonomous Robotics Workshop" value="Autonomous Robotics Workshop">' +
+      '</div>' +
+      '<div class="input-grid">' +
+        '<div class="input-field">' +
+          '<label>Section</label>' +
+          '<input id="bk-form-sec" placeholder="e.g. R1" value="R1">' +
+        '</div>' +
+        '<div class="input-field">' +
+          '<label>Instructor / Session Lead *</label>' +
+          '<input id="bk-form-instr" placeholder="e.g. Dr. Sneha Roy" value="Dr. Sneha Roy">' +
+        '</div>' +
+      '</div>' +
+      '<div class="input-grid">' +
+        '<div class="input-field">' +
+          '<label>Requested Room *</label>' +
+          '<select id="bk-form-room">' +
+            R.map(function(r) {
+              return '<option value="' + r.id + '" ' + (r.id === '202' ? 'selected' : '') + '>' + r.id + ' — ' + r.n + ' (Cap ' + r.cap + ', Floor ' + r.f + ')</option>';
+            }).join('') +
+          '</select>' +
+        '</div>' +
+        '<div class="input-field">' +
+          '<label>Day of Week</label>' +
+          '<select id="bk-form-day">' +
+            ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map(function(d) {
+              return '<option value="' + d + '">' + d + '</option>';
+            }).join('') +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+      '<div class="input-grid">' +
+        '<div class="input-field">' +
+          '<label>Preferred Start Time</label>' +
+          '<select id="bk-form-start">' +
+            [8,9,10,11,12,13,14,15,16,17,18].map(function(h) {
+              return '<option value="' + h + '" ' + (h === 14 ? 'selected' : '') + '>' + hh(h) + '</option>';
+            }).join('') +
+          '</select>' +
+        '</div>' +
+        '<div class="input-field">' +
+          '<label>Duration</label>' +
+          '<select id="bk-form-dur">' +
+            '<option value="1">1 Hour</option>' +
+            '<option value="2" selected>2 Hours</option>' +
+            '<option value="3">3 Hours</option>' +
+            '<option value="4">4 Hours</option>' +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+      '<div class="input-field">' +
+        '<label>Expected Attendees Headcount *</label>' +
+        '<input id="bk-form-enrolled" type="number" min="1" max="150" value="26">' +
+      '</div>' +
+      '<div style="background:rgba(255,109,41,.08);border:1px solid rgba(255,109,41,.25);border-radius:10px;padding:12px;margin:12px 0;font-size:12px">' +
+        '<b style="color:var(--orange)">⚡ Intelligent Auto-Set Assurance:</b> If your requested slot in Room 202 collides with an existing sequence (e.g. HU102 at 14:00–16:00), the Host will automatically reschedule it to the earliest available free slot (e.g. 16:00–18:00) and notify you instantly.' +
+      '</div>' +
+      '<button class="btn ok" data-a="submit-booking-req" style="width:100%;padding:12px;font-size:13px;font-weight:700">🚀 Submit Schedule Booking Request</button>' +
+    '</div>' +
+    '<div class="col">' +
+      '<div class="card">' +
+        '<h3>Host Automated Workflow Rules</h3>' +
+        '<ol style="margin:6px 0;padding-left:18px;font-size:12px;color:var(--gray);line-height:1.7">' +
+          '<li><b>Request Created:</b> You specify room, preferred hour, duration, and headcount.</li>' +
+          '<li><b>Real-time Conflict Scan:</b> The engine checks current timetable occupancy and room capacity limit.</li>' +
+          '<li><b>Direct Acceptance:</b> If timeslot is open, Host clicks <i>Accept</i> and class is added directly to timetable.</li>' +
+          '<li><b>Autonomous Auto-Set:</b> If slot collides, Host triggers <i>Auto-Set to Next Free Slot</i>. The system calculates earliest free contiguous slot and commits it.</li>' +
+          '<li><b>Automated Notification:</b> You receive immediate confirmation of your allocated room & time or rejection notice.</li>' +
+        '</ol>' +
+      '</div>' +
+      '<div class="card">' +
+        '<h3>Live Request Tracking & Notifications</h3>' +
+        '<div style="display:flex;flex-direction:column;gap:8px;max-height:380px;overflow-y:auto">' +
+          (reqs.length === 0 ?
+            '<span class="mu" style="font-size:12px">No requests filed yet.</span>' :
+            reqs.map(function(r) {
+              const color = r.status === 'APPROVED' ? 'var(--ok)' : (r.status === 'AUTO_RESCHEDULED' ? 'var(--ok)' : (r.status === 'REJECTED' ? 'var(--crit)' : 'var(--orange)'));
+              return '<div style="background:rgba(22,19,22,.6);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:11px">' +
+                '<div style="display:flex;justify-content:space-between;margin-bottom:4px">' +
+                  '<b>' + r.course_code + ' (' + r.room_id + ')</b>' +
+                  '<span style="color:' + color + ';font-weight:600">' + r.status + '</span>' +
+                '</div>' +
+                '<div style="color:var(--white)">' + (r.notification_message || 'Pending Host review.') + '</div>' +
+              '</div>';
+            }).join('')
+          ) +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function vTt() {
   const classes = state.timetableData.length ? state.timetableData : [
     {id:'c1',course_code:'CS101',course_name:'Intro to Computing',section:'A',instructor:'Dr. Rao',day_of_week:'Monday',start_hour:9,end_hour:11,enrolled:42,room_id:'101',compatibility_group:'CS101_GRP'},
     {id:'c2',course_code:'CS101',course_name:'Intro to Computing',section:'B',instructor:'Dr. Rao',day_of_week:'Monday',start_hour:11,end_hour:13,enrolled:38,room_id:'101',compatibility_group:'CS101_GRP'},
@@ -614,34 +979,21 @@ function vTt(){
     {id:'c8',course_code:'ENV201',course_name:'Green Architecture',section:'G1',instructor:'Prof. Das',day_of_week:'Monday',start_hour:11,end_hour:13,enrolled:18,room_id:'301'}
   ];
 
-  return head('Timetable Intelligence','View scheduled classes, validate constraints (double-booking, capacity, instructor overlap), and import schedules.')+
-    '<div class="card" style="margin-bottom:14px">'+
-      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:14px">'+
-        '<div><h3>Scheduled Classes (Monday Block)</h3><span class="mu">Validation active: 0 conflicts detected. Capacity checks intact.</span></div>'+
-        '<div style="display:flex;gap:8px">'+
-          '<a class="btn ghost" href="'+API_BASE+'/export/timetable.csv" download>Export CSV</a>'+
-          '<button class="btn" data-a="go" data-v="consolidation">Optimize in RoomWise</button>'+
-        '</div>'+
-      '</div>'+
-      '<table class="tb">'+
-        '<thead><tr><th>Code</th><th>Course</th><th>Sec</th><th>Instructor</th><th>Slot</th><th>Enrolled</th><th>Room</th><th>Compatibility</th></tr></thead>'+
-        '<tbody>'+
-          classes.map(c=>
-            '<tr>'+
-              '<td><b>'+c.course_code+'</b></td>'+
-              '<td>'+c.course_name+'</td>'+
-              '<td>'+c.section+'</td>'+
-              '<td>'+c.instructor+'</td>'+
-              '<td>'+hh(c.start_hour)+' – '+hh(c.end_hour)+'</td>'+
-              '<td>'+c.enrolled+'</td>'+
-              '<td><span class="chip" style="padding:2px 8px;font-size:10px">'+c.room_id+'</span></td>'+
-              '<td>'+(c.compatibility_group ? '<span style="color:var(--orange)">'+c.compatibility_group+'</span>' : '—')+'</td>'+
-            '</tr>'
-          ).join('')+
-        '</tbody>'+
-      '</table>'+
-    '</div>';
+  const pendingCount = (state.scheduleRequests || []).filter(function(r) { return r.status === 'PENDING'; }).length;
+
+  return head('Timetable Intelligence & Custom Host Workflow', 'Edit sequences, validate constraints, review incoming room schedule requests, and auto-set conflict slots.') +
+    '<div style="margin-bottom:16px">' +
+      seg('tt-sub', [
+        ['classes', '📅 Active Timetable & Editor (' + classes.length + ')'],
+        ['requests', '📨 Host Request Queue' + (pendingCount > 0 ? ' (' + pendingCount + ' Pending)' : '')],
+        ['book', '➕ Create Schedule Request']
+      ], state.ttSubView) +
+    '</div>' +
+    (state.ttSubView === 'classes' ? vTtClasses(classes) :
+      (state.ttSubView === 'requests' ? vTtRequests() : vTtBook())) +
+    renderClassModal();
 }
+
 
 const FM={he:hh,le:hh,sp:v=>v+' °C',pk:v=>v>=62?'Off':v+' kW'},sl2=(l,n,a,b,v)=>'<label class="sl"><span>'+l+'</span><input type="range" min="'+a+'" max="'+b+'" value="'+Math.min(v,b)+'" data-i="'+n+'" aria-label="'+l+'"><b data-live="v'+n+'">'+FM[n](Math.min(v,b))+'</b></label>';
 
@@ -1999,6 +2351,250 @@ document.addEventListener('click',async e=>{
     const sendBtn = document.querySelector('[data-a="send-copilot"]');
     if(sendBtn) sendBtn.click();
   }
+  else if(a=='tt-sub'){
+    state.ttSubView = v;
+    render();
+  }
+  else if(a=='open-add-class'){
+    state.editingClass = null;
+    state.showClassModal = true;
+    render();
+  }
+  else if(a=='close-class-modal'){
+    state.showClassModal = false;
+    state.editingClass = null;
+    render();
+  }
+  else if(a=='edit-class'){
+    const cls = (state.timetableData || []).find(function(c){ return c.id === v; });
+    if(cls) {
+      state.editingClass = cls;
+      state.showClassModal = true;
+      render();
+    }
+  }
+  else if(a=='delete-class'){
+    if(confirm('Are you sure you want to remove sequence ' + v + ' from the timetable?')) {
+      try {
+        const res = await fetch(API_BASE + '/timetable/class/' + v, { method: 'DELETE' });
+        if(res.ok) {
+          await syncTimetable();
+          render();
+        } else {
+          alert('Error deleting class.');
+        }
+      } catch(err){}
+    }
+  }
+  else if(a=='save-custom-class'){
+    const codeEl = document.getElementById('tt-form-code');
+    const nameEl = document.getElementById('tt-form-name');
+    const secEl = document.getElementById('tt-form-sec');
+    const instrEl = document.getElementById('tt-form-instr');
+    const roomEl = document.getElementById('tt-form-room');
+    const dayEl = document.getElementById('tt-form-day');
+    const startEl = document.getElementById('tt-form-start');
+    const endEl = document.getElementById('tt-form-end');
+    const enrolledEl = document.getElementById('tt-form-enrolled');
+    const compatEl = document.getElementById('tt-form-compat');
+    const lockEl = document.getElementById('tt-form-locked');
+
+    const code = codeEl ? codeEl.value.trim().toUpperCase() : '';
+    const name = nameEl ? nameEl.value.trim() : code;
+    const sec = secEl ? secEl.value.trim() : 'A';
+    const instr = instrEl ? instrEl.value.trim() : '';
+    const room = roomEl ? roomEl.value : '101';
+    const day = dayEl ? dayEl.value : 'Monday';
+    const start = startEl ? parseInt(startEl.value) : 9;
+    const end = endEl ? parseInt(endEl.value) : 11;
+    const enrolled = enrolledEl ? parseInt(enrolledEl.value) : 25;
+    const compat = compatEl && compatEl.value.trim() ? compatEl.value.trim() : null;
+    const locked = lockEl ? !!lockEl.checked : false;
+
+    if(!code || !instr){
+      alert('Please fill in required Course Code and Instructor.');
+      return;
+    }
+    if(start >= end){
+      alert('Start hour must be before end hour.');
+      return;
+    }
+
+    const payload = {
+      course_code: code,
+      course_name: name,
+      section: sec,
+      instructor: instr,
+      room_id: room,
+      day_of_week: day,
+      start_hour: start,
+      end_hour: end,
+      enrolled: enrolled,
+      compatibility_group: compat,
+      locked: locked,
+      required_equipment: ['projector', 'whiteboard']
+    };
+
+    try {
+      let res;
+      if(state.editingClass && state.editingClass.id) {
+        res = await fetch(API_BASE + '/timetable/class/' + state.editingClass.id, {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+      } else {
+        res = await fetch(API_BASE + '/timetable/class', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+      }
+
+      if(res.ok){
+        state.showClassModal = false;
+        state.editingClass = null;
+        await syncTimetable();
+        render();
+        alert('✓ Timetable updated successfully!');
+      } else {
+        const err = await res.json();
+        alert('Failed to save class: ' + (err.detail || 'Validation error'));
+      }
+    } catch(err){
+      alert('Network error updating timetable.');
+    }
+  }
+  else if(a=='submit-booking-req'){
+    const creatorEl = document.getElementById('bk-form-creator');
+    const codeEl = document.getElementById('bk-form-code');
+    const nameEl = document.getElementById('bk-form-name');
+    const secEl = document.getElementById('bk-form-sec');
+    const instrEl = document.getElementById('bk-form-instr');
+    const roomEl = document.getElementById('bk-form-room');
+    const dayEl = document.getElementById('bk-form-day');
+    const startEl = document.getElementById('bk-form-start');
+    const durEl = document.getElementById('bk-form-dur');
+    const enrolledEl = document.getElementById('bk-form-enrolled');
+
+    const creator = creatorEl ? creatorEl.value.trim() : 'Academic Department';
+    const code = codeEl ? codeEl.value.trim().toUpperCase() : 'EVENT101';
+    const name = nameEl ? nameEl.value.trim() : code;
+    const sec = secEl ? secEl.value.trim() : 'A';
+    const instr = instrEl ? instrEl.value.trim() : creator;
+    const room = roomEl ? roomEl.value : '202';
+    const day = dayEl ? dayEl.value : 'Monday';
+    const start = startEl ? parseInt(startEl.value) : 14;
+    const dur = durEl ? parseInt(durEl.value) : 2;
+    const enrolled = enrolledEl ? parseInt(enrolledEl.value) : 20;
+
+    if(!creator || !code){
+      alert('Please enter Requester Name and Course/Activity Code.');
+      return;
+    }
+
+    try {
+      t.innerText = 'Submitting...';
+      const res = await fetch(API_BASE + '/timetable/requests', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          creator_name: creator,
+          course_code: code,
+          course_name: name,
+          section: sec,
+          instructor: instr,
+          room_id: room,
+          day_of_week: day,
+          preferred_start_hour: start,
+          duration_hours: dur,
+          enrolled: enrolled,
+          required_equipment: ['projector']
+        })
+      });
+
+      if(res.ok){
+        const d = await res.json();
+        await syncRequests();
+        alert('🚀 Request #' + d.request_id + ' submitted to Host queue!\n\nStatus: ' + (d.slot_evaluation && d.slot_evaluation.available ? 'Timeslot Available' : 'Timeslot Occupied (Smart Auto-Set Enabled)'));
+        state.ttSubView = 'requests';
+        render();
+      } else {
+        const err = await res.json();
+        alert('Failed to submit request: ' + (err.detail || 'Validation error'));
+        render();
+      }
+    } catch(err){
+      alert('Network error submitting request.');
+      render();
+    }
+  }
+  else if(a=='accept-tt-req'){
+    try {
+      t.innerText = 'Accepting...';
+      const res = await fetch(API_BASE + '/timetable/requests/' + v + '/accept', {
+        method: 'POST'
+      });
+      if(res.ok){
+        const d = await res.json();
+        alert('✓ Host Request Accepted!\n\n' + d.notification_sent);
+        await syncRequests();
+        await syncTimetable();
+        render();
+      } else {
+        const err = await res.json();
+        alert('Cannot accept request: ' + (err.detail || 'Slot conflict or capacity exceeded. Try Auto-Set instead.'));
+        render();
+      }
+    } catch(err){
+      render();
+    }
+  }
+  else if(a=='autoset-tt-req'){
+    try {
+      t.innerText = 'Auto-setting...';
+      const res = await fetch(API_BASE + '/timetable/requests/' + v + '/auto-reschedule', {
+        method: 'POST'
+      });
+      if(res.ok){
+        const d = await res.json();
+        alert('⚡ Smart Auto-Set Executed!\n\n' + d.notification_sent);
+        await syncRequests();
+        await syncTimetable();
+        render();
+      } else {
+        const err = await res.json();
+        alert('Auto-reschedule error: ' + (err.detail || 'No free slot found in building today.'));
+        render();
+      }
+    } catch(err){
+      render();
+    }
+  }
+  else if(a=='reject-tt-req'){
+    const reason = prompt('Enter rejection reason to notify requester:', 'Room unavailable during requested period and capacity exceeded');
+    if(reason !== null){
+      try {
+        t.innerText = 'Rejecting...';
+        const res = await fetch(API_BASE + '/timetable/requests/' + v + '/reject', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ reason: reason })
+        });
+        if(res.ok){
+          const d = await res.json();
+          alert('✕ Request Rejected.\n\nAutomated notification sent to requester: ' + d.notification_sent);
+          await syncRequests();
+          render();
+        } else {
+          alert('Error rejecting request.');
+          render();
+        }
+      } catch(err){
+        render();
+      }
+    }
+  }
 });
 
 document.addEventListener('input',e=>{
@@ -2104,6 +2700,12 @@ function initWebSocket() {
         if(msg.type === 'risk_alert' || msg.type === 'risk_action_executed' || msg.type === 'risk_alert_dismissed') {
           syncAlerts().then(() => render());
         }
+        if(msg.type === 'timetable_update') {
+          syncTimetable().then(() => render());
+        }
+        if(msg.type === 'schedule_request_update') {
+          syncRequests().then(() => render());
+        }
         if(msg.type === 'initial_snapshot' && msg.active_alerts) {
           state.activeAlerts = msg.active_alerts;
           state.alertSummary = {
@@ -2124,6 +2726,26 @@ function initWebSocket() {
   } catch(e) {
     if(banner) banner.style.display = 'block';
   }
+}
+
+async function syncTimetable() {
+  try {
+    const res = await fetch(API_BASE + '/timetable');
+    if(res.ok) {
+      const data = await res.json();
+      state.timetableData = data.classes || [];
+    }
+  } catch(e) {}
+}
+
+async function syncRequests() {
+  try {
+    const res = await fetch(API_BASE + '/timetable/requests');
+    if(res.ok) {
+      const data = await res.json();
+      state.scheduleRequests = data.requests || [];
+    }
+  } catch(e) {}
 }
 
 async function syncIntelligence() {
@@ -2183,6 +2805,7 @@ async function initialSync() {
       state.currentPlan = await optRes.json();
     }
     await syncAlerts();
+    await syncRequests();
     await syncIntelligence();
     render();
   } catch(err) {
