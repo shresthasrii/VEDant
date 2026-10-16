@@ -90,11 +90,14 @@ Academic institutions and commercial facilities operate under severe structural 
 
 ### Full-Stack Data Flow:
 1. **Edge Detection & Stabilization:** The camera analyzes classroom occupancy directly inside browser memory (or via `cv/worker.py`). The anti-fluctuation voting filter eliminates transient jitter, outputting a robust, stabilized count.
-2. **Latch & Hold Mechanism:** When pushed with `[⚡ Push & Lock to Backend]`, the telemetry holds across the active scheduled class block (e.g. 14:00–16:00 for Room 202). Redundant intermediate streaming ticks do not flood duplicate database rows.
-3. **Database Telemetry Link:** SQLite stores the verified headcount with `provenance="ACTUAL"`. Queries join on `MAX(id)` per hour so that pushed actual readings immediately supersede historical synthetic averages without dilution.
+2. **Latch & Hold Mechanism & Anti-Overwrite Protection:**
+   - When pushed with `[⚡ Push & Lock to Backend]` or latched via `[⏸ HOLD / LATCH COUNT]`, the count is registered in `_HELD_ROOMS` in memory and written into the persistent `room_holds` SQLite table.
+   - **Ingest Hard Shield:** While a room hold is active, any unheld incoming background telemetry (such as the default background worker `cv/worker.py` simulating 24–25 occupants during daytime hours) is automatically blocked (`blocked_overwrite: True`) and dropped from WebSocket broadcasts. A locked headcount (e.g., 3 people) can **never** be inadvertently shifted or corrupted.
+   - **Browser State Synchronization:** Headcount is saved to browser `localStorage['verdant_cv_held']`, instantly recovering locked state on browser restart or tab reload.
+3. **Database Telemetry Link:** SQLite stores the verified headcount with `provenance="ACTUAL"`. Queries join on `MAX(id)` per hour across daytime hours (09:00–18:00) so that pushed actual readings immediately supersede historical synthetic averages without dilution.
 4. **Downstream Solvers Triggered:**
    - The Digital Twin immediately re-simulates building power draw.
-   - The RoomWise Consolidation solver ingests the actual headcount ($4$ students), recognizes that HU102 fits comfortably in Classroom 201, and issues an optimized relocation move that powers down Seminar Hall 202.
+   - The RoomWise Consolidation solver ingests the actual headcount ($4$ students or locked $3$ students), recognizes that HU102 fits comfortably in Classroom 201, and issues an optimized relocation move that powers down Seminar Hall 202.
    - The Facility Copilot (Groq LPU or local Ollama) grounds its natural language explanations directly on live database state.
    - Host users reviewing timetable requests can directly accept or trigger automatic conflict rescheduling to the next free room timeslot.
 

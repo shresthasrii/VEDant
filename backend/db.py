@@ -95,6 +95,21 @@ def init_db():
             FOREIGN KEY(room_id) REFERENCES rooms(id)
         )
         """)
+
+        # Active Room Headcount Holds (Latching)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS room_holds (
+            room_id TEXT PRIMARY KEY,
+            count INTEGER NOT NULL,
+            smoothed_count REAL NOT NULL,
+            hour INTEGER NOT NULL,
+            confidence REAL NOT NULL DEFAULT 1.0,
+            source TEXT NOT NULL DEFAULT 'camera',
+            timestamp TEXT NOT NULL,
+            held INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY(room_id) REFERENCES rooms(id)
+        )
+        """)
         
         # Energy Readings (Hourly breakdown per scenario)
         cursor.execute("""

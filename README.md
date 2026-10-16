@@ -85,12 +85,14 @@ VERDANT provides a multi-layer, zero-storage computer vision system that runs bo
 - **Side-by-Side Multi-Person Extrema Splitter**: Analyzes local energy peaks and valley contours to segment occupants seated shoulder-to-shoulder into distinct person bounding boxes, preventing cluster collapse.
 - **Precise 2D IoU Deduplication**: Replaced 1D proximity merging with true 2D Intersection-over-Union ($\text{IoU} > 0.50$) and area containment ($\text{Cont} > 0.70, \Delta x < 0.08$), preserving separate adjacent occupants without false merges.
 - **Instant Track Confirmation & Responsive Buffer**: Immediately confirms confident detections ($\ge 0.70$) on frame 1, with a 5-frame rolling mode voting buffer and 2-cycle upward transition (~250ms), eliminating detection lag and headcount flicker.
-- **Persistent Headcount Hold Architecture**:
+- **Persistent Headcount Hold & Anti-Overwrite Architecture**:
   - `[⚡ Push & Lock to Backend]` and `[⏸ HOLD / LATCH COUNT]` permanently latch the detected or manual headcount across the entire platform.
-  - **In-Memory & SQLite Hold Registry**: Backend tracks active hold state in `_HELD_ROOMS` and writes actual camera readings across all daytime operating hours (09:00–18:00) into SQLite `occupancy_readings`.
+  - **Dedicated SQLite `room_holds` Table & Memory Registry**: Backend tracks active hold state in memory (`_HELD_ROOMS`) and writes to a dedicated `room_holds` SQLite table. Held state persists indefinitely across server restarts and browser reloads.
+  - **Hard Ingest Shield Against Background Workers**: Routine background synthetic streams and unheld worker packets are blocked (`blocked_overwrite: True`) whenever a room hold is active, ensuring a locked headcount (e.g. 3 people) will never automatically shift back to synthetic daytime averages (e.g. 25).
+  - **Daytime Hours Expansion**: Writes actual camera readings across daytime operating hours (09:00–18:00) and scheduled class blocks into SQLite `occupancy_readings`, permanently updating the 24-hour telemetry curve.
   - **Browser LocalStorage Persistence**: Headcount and frozen cyber bounding boxes are saved to `localStorage['verdant_cv_held']`, instantly recovering latched readings even after browser refresh or tab restart.
-  - **Continuous 24-Hour Telemetry Sync**: Real-time 24H chart reflects the latched headcount with `[LATCHED / HELD]` status without needing manual refresh.
-  - **Clean Hold Release**: Clicking `[🔒 RELEASE HOLD]` notifies `POST /occupancy/hold/release` and smoothly resumes live tracking.
+  - **WebSocket Guard & 24H Telemetry Sync**: Unheld incoming WebSocket messages are ignored for held rooms, and the real-time 24H chart and RoomWise solver reflect the latched count.
+  - **Clean Hold Release**: Clicking `[🔒 RELEASE HOLD]` notifies `POST /occupancy/hold/release`, removes the entry from `room_holds`, and smoothly resumes live camera tracking.
 
 ### 2. Standalone Edge Worker (`cv/worker.py`)
 Run the Python edge worker directly on any camera or video stream:
