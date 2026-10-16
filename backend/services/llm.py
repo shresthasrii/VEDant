@@ -3,7 +3,16 @@ import json
 import time
 import urllib.request
 import urllib.error
+import ssl
 from typing import Dict, Any, List, Optional
+
+try:
+    import certifi
+    _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+except Exception:
+    _SSL_CTX = ssl.create_default_context()
+
+IS_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
 
 # Default system Groq API credentials provided by user
 DEFAULT_GROQ_API_KEY = os.environ.get(
@@ -92,7 +101,7 @@ def test_groq_api_key(api_key: Optional[str] = None, model: Optional[str] = None
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=8.0) as resp:
+        with urllib.request.urlopen(req, timeout=5.0, context=_SSL_CTX) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             elapsed_ms = round((time.time() - t0) * 1000)
             reply = data["choices"][0]["message"]["content"].strip()
@@ -116,7 +125,7 @@ def call_groq_chat(
     history: Optional[List[Dict[str, str]]] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
-    timeout: float = 12.0
+    timeout: float = 6.5
 ) -> Optional[Dict[str, Any]]:
     """Calls Groq Cloud API endpoint for lightning-fast inference."""
     key = api_key.strip() if (api_key and api_key.strip()) else (_RUNTIME_CONFIG.get("custom_api_key") or DEFAULT_GROQ_API_KEY)
@@ -157,7 +166,7 @@ def call_groq_chat(
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             elapsed_ms = round((time.time() - t0) * 1000)
             reply = data["choices"][0]["message"]["content"].strip()
@@ -241,6 +250,10 @@ def generate_llm_response(
     res = call_groq_chat(prompt, system_prompt, history, api_key=api_key, model=model)
     if res:
         return res
+
+    # Skip local Ollama on Vercel/serverless environments to avoid connection hang
+    if IS_VERCEL:
+        return None
 
     # Fallback to local Ollama if Groq fails
     return call_ollama_chat(prompt, system_prompt, history, model=model)

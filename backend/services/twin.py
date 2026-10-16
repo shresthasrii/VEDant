@@ -16,9 +16,36 @@ def _cache_key(**kwargs) -> str:
     return hashlib.md5(json.dumps(kwargs, sort_keys=True, default=str).encode()).hexdigest()
 
 
+DEFAULT_FACTORS: Dict[str, Any] = {
+    "tariff_inr_per_kwh": 8.0,
+    "tod_tariffs": {
+        "off_peak": {"hours": [22, 23, 0, 1, 2, 3, 4, 5], "rate": 5.50, "label": "Off-Peak (Night)"},
+        "normal": {"hours": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17], "rate": 8.00, "label": "Normal (Day)"},
+        "peak": {"hours": [18, 19, 20, 21], "rate": 12.50, "label": "Peak Surge (Evening)"}
+    },
+    "contracted_demand_kva": 95.0,
+    "demand_charge_inr_per_kva": 350.0,
+    "power_factor": 0.95,
+    "grid_emission_factor_kg_co2_per_kwh": 0.70,
+    "hvac_sensitivity_per_deg_c": 0.06,
+    "hvac_min_ventilation_floor": 0.35,
+    "lighting_sparse_dimming_ratio": 0.40,
+    "lighting_vacant_ratio": 0.10,
+    "warmup_kwh_per_room_day": 1.5,
+    "default_comfort_setpoint_c": 24.0,
+    "max_comfort_setpoint_c": 28.0,
+    "min_comfort_setpoint_c": 22.0
+}
+
 def get_factors() -> Dict[str, Any]:
-    with open(CONFIG_DIR / "factors.json", "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        fpath = CONFIG_DIR / "factors.json"
+        if fpath.exists():
+            with open(fpath, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return DEFAULT_FACTORS
 
 def simulate_twin_scenario(
     hvac_end: int = 18,

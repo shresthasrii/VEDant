@@ -2919,7 +2919,17 @@ document.addEventListener('click',async e=>{
           sources: data.sources
         });
       } else {
-        state.copilotChat.push({from:'copilot', text:'Error retrieving response from AI Copilot service.'});
+        let errDetail = '';
+        try {
+          const errData = await res.json();
+          errDetail = errData.detail || JSON.stringify(errData);
+        } catch(err) {
+          errDetail = await res.text().catch(()=>'');
+        }
+        state.copilotChat.push({
+          from:'copilot',
+          text: `Error retrieving response from AI Copilot service (${res.status}${errDetail ? ': ' + errDetail : ''}).`
+        });
       }
     } catch(e){
       state.copilotChat.push({from:'copilot', text:'Network error querying AI Copilot.'});

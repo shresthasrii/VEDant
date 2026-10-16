@@ -4,9 +4,27 @@ from typing import List, Dict, Any
 
 CONFIG_FILE = Path(__file__).resolve().parent.parent / "config" / "factors.json"
 
+DEFAULT_FACTORS: Dict[str, Any] = {
+    "tariff_inr_per_kwh": 8.0,
+    "tod_tariffs": {
+        "off_peak": {"hours": [22, 23, 0, 1, 2, 3, 4, 5], "rate": 5.50, "label": "Off-Peak (Night)"},
+        "normal": {"hours": [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17], "rate": 8.00, "label": "Normal (Day)"},
+        "peak": {"hours": [18, 19, 20, 21], "rate": 12.50, "label": "Peak Surge (Evening)"}
+    },
+    "contracted_demand_kva": 95.0,
+    "demand_charge_inr_per_kva": 350.0,
+    "power_factor": 0.95,
+    "grid_emission_factor_kg_co2_per_kwh": 0.70
+}
+
 def load_factors() -> Dict[str, Any]:
-    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        if CONFIG_FILE.exists():
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return DEFAULT_FACTORS
 
 TOD_PEAK_RATE = 12.50
 TOD_NORMAL_RATE = 8.00
