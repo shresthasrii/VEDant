@@ -88,6 +88,13 @@ const API_BASE = '';
 const WS_URL = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws';
 const CAT={base:'#BABABA',opt:'#FF6D29',occ:'#FFFFFF',h:'#BE5828',l:'#FFBD9F',p:'#807570'};
 const $=s=>document.querySelector(s),sum=a=>a.reduce((x,y)=>x+y,0),f1=x=>(+x).toFixed(1),fi=x=>Math.round(x).toLocaleString('en-IN'),hh=h=>String(h).padStart(2,'0')+':00';
+const escapeAttr=s=>s==null?'':String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function isUserTypingOrFormActive(){
+  const a=document.activeElement;
+  const isTyping=a&&['INPUT','TEXTAREA','SELECT'].includes(a.tagName);
+  const isFormOpen=!!(typeof state!=='undefined'&&(state.showClassModal||(state.view==='timetable'&&state.ttSubView==='book')));
+  return !!(isTyping||isFormOpen);
+}
 const TAR=8,EF=.7,AS='Assumptions: tariff ₹8/kWh and 0.7 kg CO₂/kWh are configurable placeholders (verify the latest CEA grid factor); ~6% HVAC energy per °C setpoint; occupancy-aware HVAC keeps a 35% ventilation floor; plug loads unchanged.';
 
 let R = [
@@ -120,6 +127,31 @@ const state={
   view:'overview',scen:'base',hour:15,floor:0,iso:false,room:'202',layer:'occ',sys:'all',
   rot:.35,zoom:1,opt:dOpt(),rs:{},currentPlan:null,timetableData:[],advisorResponse:null,
   ttSubView:'classes',scheduleRequests:[],showClassModal:false,editingClass:null,
+  bookingDraft:{
+    creator:'Dr. Sneha Roy (Robotics Club)',
+    code:'ROB401',
+    name:'Autonomous Robotics Workshop',
+    sec:'R1',
+    instr:'Dr. Sneha Roy',
+    room_id:'202',
+    day:'Monday',
+    start_hour:14,
+    duration:2,
+    enrolled:26
+  },
+  classModalDraft:{
+    course_code:'',
+    course_name:'',
+    section:'A',
+    instructor:'',
+    room_id:'101',
+    day_of_week:'Monday',
+    start_hour:9,
+    end_hour:11,
+    enrolled:25,
+    compatibility_group:'',
+    locked:false
+  },
   is2D:window.location.search.includes('mode=2d'),
   mode:'live',replayTimer:null,capacityMargin:10,disruptionPenalty:2.0,solverType:'heuristic',
   gridMode:'after',roomProvenance:{'202':'ACTUAL'},cvSource:'synthetic',
@@ -625,7 +657,7 @@ function vCon(){
 
 function renderClassModal() {
   if (!state.showClassModal) return '';
-  const c = state.editingClass || {
+  const c = state.classModalDraft || state.editingClass || {
     id: '', course_code: '', course_name: '', section: 'A', instructor: '',
     room_id: '101', day_of_week: 'Monday', start_hour: 9, end_hour: 11, enrolled: 25, compatibility_group: '', locked: false
   };
@@ -640,21 +672,21 @@ function renderClassModal() {
       '<div class="input-grid">' +
         '<div class="input-field">' +
           '<label>Course Code *</label>' +
-          '<input id="tt-form-code" placeholder="e.g. CS305" value="' + (c.course_code || '') + '">' +
+          '<input id="tt-form-code" placeholder="e.g. CS305" value="' + escapeAttr(c.course_code || '') + '">' +
         '</div>' +
         '<div class="input-field">' +
           '<label>Section</label>' +
-          '<input id="tt-form-sec" placeholder="e.g. A" value="' + (c.section || 'A') + '">' +
+          '<input id="tt-form-sec" placeholder="e.g. A" value="' + escapeAttr(c.section || 'A') + '">' +
         '</div>' +
       '</div>' +
       '<div class="input-field">' +
         '<label>Course Name / Title *</label>' +
-        '<input id="tt-form-name" placeholder="e.g. Distributed Computing Systems" value="' + (c.course_name || '') + '">' +
+        '<input id="tt-form-name" placeholder="e.g. Distributed Computing Systems" value="' + escapeAttr(c.course_name || '') + '">' +
       '</div>' +
       '<div class="input-grid">' +
         '<div class="input-field">' +
           '<label>Instructor / Faculty *</label>' +
-          '<input id="tt-form-instr" placeholder="e.g. Dr. K. V. Rao" value="' + (c.instructor || '') + '">' +
+          '<input id="tt-form-instr" placeholder="e.g. Dr. K. V. Rao" value="' + escapeAttr(c.instructor || '') + '">' +
         '</div>' +
         '<div class="input-field">' +
           '<label>Allocated Room *</label>' +
@@ -699,7 +731,7 @@ function renderClassModal() {
       '</div>' +
       '<div class="input-field">' +
         '<label>Compatibility Group (Optional)</label>' +
-        '<input id="tt-form-compat" placeholder="e.g. CS101_GRP (must stay in same room)" value="' + (c.compatibility_group || '') + '">' +
+        '<input id="tt-form-compat" placeholder="e.g. CS101_GRP (must stay in same room)" value="' + escapeAttr(c.compatibility_group || '') + '">' +
       '</div>' +
       '<div style="margin:8px 0 16px">' +
         '<label class="ck" style="font-size:12px;color:var(--white)"><input type="checkbox" id="tt-form-locked" ' + (c.locked ? 'checked' : '') + '> <b>Lock sequence:</b> Do not allow RoomWise optimizer to move this class</label>' +
@@ -868,6 +900,18 @@ function vTtRequests() {
 
 function vTtBook() {
   const reqs = state.scheduleRequests || [];
+  const bkd = state.bookingDraft || {
+    creator: 'Dr. Sneha Roy (Robotics Club)',
+    code: 'ROB401',
+    name: 'Autonomous Robotics Workshop',
+    sec: 'R1',
+    instr: 'Dr. Sneha Roy',
+    room_id: '202',
+    day: 'Monday',
+    start_hour: 14,
+    duration: 2,
+    enrolled: 26
+  };
 
   return '<div class="row">' +
     '<div class="card">' +
@@ -878,25 +922,25 @@ function vTtBook() {
       '<div class="input-grid">' +
         '<div class="input-field">' +
           '<label>Requester Name / Department *</label>' +
-          '<input id="bk-form-creator" placeholder="e.g. Dr. Sneha Roy / Robotics Club" value="Dr. Sneha Roy (Robotics Club)">' +
+          '<input id="bk-form-creator" placeholder="e.g. Dr. Sneha Roy / Robotics Club" value="' + escapeAttr(bkd.creator || '') + '">' +
         '</div>' +
         '<div class="input-field">' +
           '<label>Course / Activity Code *</label>' +
-          '<input id="bk-form-code" placeholder="e.g. ROB401" value="ROB401">' +
+          '<input id="bk-form-code" placeholder="e.g. ROB401" value="' + escapeAttr(bkd.code || '') + '">' +
         '</div>' +
       '</div>' +
       '<div class="input-field">' +
         '<label>Course or Event Title *</label>' +
-        '<input id="bk-form-name" placeholder="e.g. Autonomous Robotics Workshop" value="Autonomous Robotics Workshop">' +
+        '<input id="bk-form-name" placeholder="e.g. Autonomous Robotics Workshop" value="' + escapeAttr(bkd.name || '') + '">' +
       '</div>' +
       '<div class="input-grid">' +
         '<div class="input-field">' +
           '<label>Section</label>' +
-          '<input id="bk-form-sec" placeholder="e.g. R1" value="R1">' +
+          '<input id="bk-form-sec" placeholder="e.g. R1" value="' + escapeAttr(bkd.sec || 'R1') + '">' +
         '</div>' +
         '<div class="input-field">' +
           '<label>Instructor / Session Lead *</label>' +
-          '<input id="bk-form-instr" placeholder="e.g. Dr. Sneha Roy" value="Dr. Sneha Roy">' +
+          '<input id="bk-form-instr" placeholder="e.g. Dr. Sneha Roy" value="' + escapeAttr(bkd.instr || '') + '">' +
         '</div>' +
       '</div>' +
       '<div class="input-grid">' +
@@ -904,7 +948,7 @@ function vTtBook() {
           '<label>Requested Room *</label>' +
           '<select id="bk-form-room">' +
             R.map(function(r) {
-              return '<option value="' + r.id + '" ' + (r.id === '202' ? 'selected' : '') + '>' + r.id + ' — ' + r.n + ' (Cap ' + r.cap + ', Floor ' + r.f + ')</option>';
+              return '<option value="' + r.id + '" ' + (bkd.room_id === r.id ? 'selected' : '') + '>' + r.id + ' — ' + r.n + ' (Cap ' + r.cap + ', Floor ' + r.f + ')</option>';
             }).join('') +
           '</select>' +
         '</div>' +
@@ -912,7 +956,7 @@ function vTtBook() {
           '<label>Day of Week</label>' +
           '<select id="bk-form-day">' +
             ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].map(function(d) {
-              return '<option value="' + d + '">' + d + '</option>';
+              return '<option value="' + d + '" ' + (bkd.day === d ? 'selected' : '') + '>' + d + '</option>';
             }).join('') +
           '</select>' +
         '</div>' +
@@ -922,23 +966,23 @@ function vTtBook() {
           '<label>Preferred Start Time</label>' +
           '<select id="bk-form-start">' +
             [8,9,10,11,12,13,14,15,16,17,18].map(function(h) {
-              return '<option value="' + h + '" ' + (h === 14 ? 'selected' : '') + '>' + hh(h) + '</option>';
+              return '<option value="' + h + '" ' + (bkd.start_hour === h ? 'selected' : '') + '>' + hh(h) + '</option>';
             }).join('') +
           '</select>' +
         '</div>' +
         '<div class="input-field">' +
           '<label>Duration</label>' +
           '<select id="bk-form-dur">' +
-            '<option value="1">1 Hour</option>' +
-            '<option value="2" selected>2 Hours</option>' +
-            '<option value="3">3 Hours</option>' +
-            '<option value="4">4 Hours</option>' +
+            '<option value="1" ' + (bkd.duration === 1 ? 'selected' : '') + '>1 Hour</option>' +
+            '<option value="2" ' + (bkd.duration === 2 ? 'selected' : '') + '>2 Hours</option>' +
+            '<option value="3" ' + (bkd.duration === 3 ? 'selected' : '') + '>3 Hours</option>' +
+            '<option value="4" ' + (bkd.duration === 4 ? 'selected' : '') + '>4 Hours</option>' +
           '</select>' +
         '</div>' +
       '</div>' +
       '<div class="input-field">' +
         '<label>Expected Attendees Headcount *</label>' +
-        '<input id="bk-form-enrolled" type="number" min="1" max="150" value="26">' +
+        '<input id="bk-form-enrolled" type="number" min="1" max="150" value="' + (bkd.enrolled || 26) + '">' +
       '</div>' +
       '<div style="background:rgba(255,109,41,.08);border:1px solid rgba(255,109,41,.25);border-radius:10px;padding:12px;margin:12px 0;font-size:12px">' +
         '<b style="color:var(--orange)">⚡ Intelligent Auto-Set Assurance:</b> If your requested slot in Room 202 collides with an existing sequence (e.g. HU102 at 14:00–16:00), the Host will automatically reschedule it to the earliest available free slot (e.g. 16:00–18:00) and notify you instantly.' +
@@ -1557,6 +1601,16 @@ function vSafety(){
 const VIEWS={overview:vOv,occupancy:vOcc,vision:vVis,consolidation:vCon,timetable:vTt,twin:vTw,energy:vEn,advisor:vAd,safety:vSafety};
 
 function render(){
+  const activeId = (document.activeElement && document.activeElement.id) ? document.activeElement.id : null;
+  const activeTag = document.activeElement ? document.activeElement.tagName : null;
+  let selStart = null, selEnd = null;
+  if (document.activeElement && (activeTag === 'INPUT' || activeTag === 'TEXTAREA')) {
+    try {
+      selStart = document.activeElement.selectionStart;
+      selEnd = document.activeElement.selectionEnd;
+    } catch(e) {}
+  }
+
   const sc=lastS!=state.scen;
   const actCount = state.alertSummary ? (state.alertSummary.total_active || 0) : 0;
   $('#app').innerHTML='<div class="shell"><nav class="side" aria-label="Main"><div class="logo">VERD<em>ant</em></div>'+
@@ -1575,6 +1629,18 @@ function render(){
       vEl.setAttribute('autoplay','');
       vEl.srcObject=cvStream;
       vEl.play().catch(function(){});
+    }
+  }
+
+  if(activeId){
+    const el = document.getElementById(activeId);
+    if(el && typeof el.focus === 'function'){
+      try {
+        el.focus();
+        if(selStart !== null && selEnd !== null && typeof el.setSelectionRange === 'function'){
+          el.setSelectionRange(selStart, selEnd);
+        }
+      } catch(e){}
     }
   }
 }
@@ -3051,18 +3117,45 @@ document.addEventListener('click',async e=>{
   }
   else if(a=='open-add-class'){
     state.editingClass = null;
+    state.classModalDraft = {
+      course_code: '',
+      course_name: '',
+      section: 'A',
+      instructor: '',
+      room_id: '101',
+      day_of_week: 'Monday',
+      start_hour: 9,
+      end_hour: 11,
+      enrolled: 25,
+      compatibility_group: '',
+      locked: false
+    };
     state.showClassModal = true;
     render();
   }
   else if(a=='close-class-modal'){
     state.showClassModal = false;
     state.editingClass = null;
+    state.classModalDraft = null;
     render();
   }
   else if(a=='edit-class'){
     const cls = (state.timetableData || []).find(function(c){ return c.id === v; });
     if(cls) {
       state.editingClass = cls;
+      state.classModalDraft = {
+        course_code: cls.course_code || '',
+        course_name: cls.course_name || '',
+        section: cls.section || 'A',
+        instructor: cls.instructor || '',
+        room_id: cls.room_id || '101',
+        day_of_week: cls.day_of_week || 'Monday',
+        start_hour: cls.start_hour != null ? cls.start_hour : 9,
+        end_hour: cls.end_hour != null ? cls.end_hour : 11,
+        enrolled: cls.enrolled != null ? cls.enrolled : 25,
+        compatibility_group: cls.compatibility_group || '',
+        locked: !!cls.locked
+      };
       state.showClassModal = true;
       render();
     }
@@ -3093,17 +3186,18 @@ document.addEventListener('click',async e=>{
     const compatEl = document.getElementById('tt-form-compat');
     const lockEl = document.getElementById('tt-form-locked');
 
-    const code = codeEl ? codeEl.value.trim().toUpperCase() : '';
-    const name = nameEl ? nameEl.value.trim() : code;
-    const sec = secEl ? secEl.value.trim() : 'A';
-    const instr = instrEl ? instrEl.value.trim() : '';
-    const room = roomEl ? roomEl.value : '101';
-    const day = dayEl ? dayEl.value : 'Monday';
-    const start = startEl ? parseInt(startEl.value) : 9;
-    const end = endEl ? parseInt(endEl.value) : 11;
-    const enrolled = enrolledEl ? parseInt(enrolledEl.value) : 25;
-    const compat = compatEl && compatEl.value.trim() ? compatEl.value.trim() : null;
-    const locked = lockEl ? !!lockEl.checked : false;
+    const cmd = state.classModalDraft || {};
+    const code = codeEl ? codeEl.value.trim().toUpperCase() : (cmd.course_code || '').trim().toUpperCase();
+    const name = nameEl ? nameEl.value.trim() : (cmd.course_name || code);
+    const sec = secEl ? secEl.value.trim() : (cmd.section || 'A');
+    const instr = instrEl ? instrEl.value.trim() : (cmd.instructor || '');
+    const room = roomEl ? roomEl.value : (cmd.room_id || '101');
+    const day = dayEl ? dayEl.value : (cmd.day_of_week || 'Monday');
+    const start = startEl ? parseInt(startEl.value) : (cmd.start_hour || 9);
+    const end = endEl ? parseInt(endEl.value) : (cmd.end_hour || 11);
+    const enrolled = enrolledEl ? parseInt(enrolledEl.value) : (cmd.enrolled || 25);
+    const compat = (compatEl && compatEl.value.trim()) ? compatEl.value.trim() : (cmd.compatibility_group || null);
+    const locked = lockEl ? !!lockEl.checked : !!cmd.locked;
 
     if(!code || !instr){
       alert('Please fill in required Course Code and Instructor.');
@@ -3130,6 +3224,7 @@ document.addEventListener('click',async e=>{
     };
 
     try {
+      t.innerText = 'Saving...';
       let res;
       if(state.editingClass && state.editingClass.id) {
         res = await fetch(API_BASE + '/timetable/class/' + state.editingClass.id, {
@@ -3148,15 +3243,18 @@ document.addEventListener('click',async e=>{
       if(res.ok){
         state.showClassModal = false;
         state.editingClass = null;
+        state.classModalDraft = null;
         await syncTimetable();
         render();
         alert('✓ Timetable updated successfully!');
       } else {
         const err = await res.json();
         alert('Failed to save class: ' + (err.detail || 'Validation error'));
+        t.innerText = state.editingClass ? 'Save Changes' : 'Add Sequence';
       }
     } catch(err){
       alert('Network error updating timetable.');
+      t.innerText = state.editingClass ? 'Save Changes' : 'Add Sequence';
     }
   }
   else if(a=='submit-booking-req'){
@@ -3171,16 +3269,17 @@ document.addEventListener('click',async e=>{
     const durEl = document.getElementById('bk-form-dur');
     const enrolledEl = document.getElementById('bk-form-enrolled');
 
-    const creator = creatorEl ? creatorEl.value.trim() : 'Academic Department';
-    const code = codeEl ? codeEl.value.trim().toUpperCase() : 'EVENT101';
-    const name = nameEl ? nameEl.value.trim() : code;
-    const sec = secEl ? secEl.value.trim() : 'A';
-    const instr = instrEl ? instrEl.value.trim() : creator;
-    const room = roomEl ? roomEl.value : '202';
-    const day = dayEl ? dayEl.value : 'Monday';
-    const start = startEl ? parseInt(startEl.value) : 14;
-    const dur = durEl ? parseInt(durEl.value) : 2;
-    const enrolled = enrolledEl ? parseInt(enrolledEl.value) : 20;
+    const bkd = state.bookingDraft || {};
+    const creator = creatorEl ? creatorEl.value.trim() : (bkd.creator || 'Academic Department');
+    const code = codeEl ? codeEl.value.trim().toUpperCase() : (bkd.code || 'EVENT101');
+    const name = nameEl ? nameEl.value.trim() : (bkd.name || code);
+    const sec = secEl ? secEl.value.trim() : (bkd.sec || 'A');
+    const instr = instrEl ? instrEl.value.trim() : (bkd.instr || creator);
+    const room = roomEl ? roomEl.value : (bkd.room_id || '202');
+    const day = dayEl ? dayEl.value : (bkd.day || 'Monday');
+    const start = startEl ? parseInt(startEl.value) : (bkd.start_hour || 14);
+    const dur = durEl ? parseInt(durEl.value) : (bkd.duration || 2);
+    const enrolled = enrolledEl ? parseInt(enrolledEl.value) : (bkd.enrolled || 20);
 
     if(!creator || !code){
       alert('Please enter Requester Name and Course/Activity Code.');
@@ -3211,16 +3310,28 @@ document.addEventListener('click',async e=>{
         const d = await res.json();
         await syncRequests();
         alert('🚀 Request #' + d.request_id + ' submitted to Host queue!\n\nStatus: ' + (d.slot_evaluation && d.slot_evaluation.available ? 'Timeslot Available' : 'Timeslot Occupied (Smart Auto-Set Enabled)'));
+        state.bookingDraft = {
+          creator: '',
+          code: '',
+          name: '',
+          sec: 'A',
+          instr: '',
+          room_id: '202',
+          day: 'Monday',
+          start_hour: 14,
+          duration: 2,
+          enrolled: 26
+        };
         state.ttSubView = 'requests';
         render();
       } else {
         const err = await res.json();
         alert('Failed to submit request: ' + (err.detail || 'Validation error'));
-        render();
+        t.innerText = '🚀 Submit Schedule Booking Request';
       }
     } catch(err){
       alert('Network error submitting request.');
-      render();
+      t.innerText = '🚀 Submit Schedule Booking Request';
     }
   }
   else if(a=='accept-tt-req'){
@@ -3292,6 +3403,25 @@ document.addEventListener('click',async e=>{
 });
 
 document.addEventListener('input',e=>{
+  const id=e.target.id;
+  if(id&&state.bookingDraft&&id.startsWith('bk-form-')){
+    const k=id.replace('bk-form-','');
+    if(k==='creator')state.bookingDraft.creator=e.target.value;
+    else if(k==='code')state.bookingDraft.code=e.target.value;
+    else if(k==='name')state.bookingDraft.name=e.target.value;
+    else if(k==='sec')state.bookingDraft.sec=e.target.value;
+    else if(k==='instr')state.bookingDraft.instr=e.target.value;
+    else if(k==='enrolled')state.bookingDraft.enrolled=parseInt(e.target.value)||0;
+  }
+  if(id&&state.classModalDraft&&id.startsWith('tt-form-')){
+    const k=id.replace('tt-form-','');
+    if(k==='code')state.classModalDraft.course_code=e.target.value;
+    else if(k==='name')state.classModalDraft.course_name=e.target.value;
+    else if(k==='sec')state.classModalDraft.section=e.target.value;
+    else if(k==='instr')state.classModalDraft.instructor=e.target.value;
+    else if(k==='enrolled')state.classModalDraft.enrolled=parseInt(e.target.value)||0;
+    else if(k==='compat')state.classModalDraft.compatibility_group=e.target.value;
+  }
   const n=e.target.dataset.i;
   if(!n)return;
   const v=+e.target.value;
@@ -3310,6 +3440,24 @@ document.addEventListener('input',e=>{
   partial();
 });
 document.addEventListener('change',e=>{
+  const id=e.target.id;
+  if(id&&state.bookingDraft&&id.startsWith('bk-form-')){
+    const k=id.replace('bk-form-','');
+    if(k==='room')state.bookingDraft.room_id=e.target.value;
+    else if(k==='day')state.bookingDraft.day=e.target.value;
+    else if(k==='start')state.bookingDraft.start_hour=parseInt(e.target.value)||14;
+    else if(k==='dur')state.bookingDraft.duration=parseInt(e.target.value)||2;
+    else if(k==='enrolled')state.bookingDraft.enrolled=parseInt(e.target.value)||0;
+  }
+  if(id&&state.classModalDraft&&id.startsWith('tt-form-')){
+    const k=id.replace('tt-form-','');
+    if(k==='room')state.classModalDraft.room_id=e.target.value;
+    else if(k==='day')state.classModalDraft.day_of_week=e.target.value;
+    else if(k==='start')state.classModalDraft.start_hour=parseInt(e.target.value)||9;
+    else if(k==='end')state.classModalDraft.end_hour=parseInt(e.target.value)||11;
+    else if(k==='enrolled')state.classModalDraft.enrolled=parseInt(e.target.value)||0;
+    else if(k==='locked')state.classModalDraft.locked=!!e.target.checked;
+  }
   const n=e.target.dataset.i;
   if(n=='occall'){
     const s=e.target.checked?R.map(r=>r.id):[];
@@ -3369,11 +3517,16 @@ function startRestFallback() {
   restFallbackActive = true;
   const banner = document.getElementById('conn-banner');
   if (banner) banner.style.display = 'none';
-  setInterval(() => {
-    syncAlerts().then(() => render()).catch(()=>{});
-    syncTimetable().then(() => render()).catch(()=>{});
-    syncRequests().then(() => render()).catch(()=>{});
-  }, 8000);
+  setInterval(async () => {
+    try {
+      await syncAlerts();
+      await syncTimetable();
+      await syncRequests();
+    } catch(e){}
+    if (!isUserTypingOrFormActive()) {
+      render();
+    }
+  }, 10000);
 }
 
 function initWebSocket() {
@@ -3439,13 +3592,13 @@ function initWebSocket() {
           }
         }
         if(msg.type === 'risk_alert' || msg.type === 'risk_action_executed' || msg.type === 'risk_alert_dismissed') {
-          syncAlerts().then(() => render());
+          syncAlerts().then(() => { if (!isUserTypingOrFormActive()) render(); });
         }
         if(msg.type === 'timetable_update') {
-          syncTimetable().then(() => render());
+          syncTimetable().then(() => { if (!isUserTypingOrFormActive()) render(); });
         }
         if(msg.type === 'schedule_request_update') {
-          syncRequests().then(() => render());
+          syncRequests().then(() => { if (!isUserTypingOrFormActive()) render(); });
         }
         if(msg.type === 'initial_snapshot' && msg.active_alerts) {
           state.activeAlerts = msg.active_alerts;
@@ -3455,7 +3608,7 @@ function initWebSocket() {
             high_count: msg.active_alerts.filter(a=>a.severity==='HIGH').length,
             auto_execute_enabled: false
           };
-          render();
+          if (!isUserTypingOrFormActive()) render();
         }
       } catch(err){}
     };
