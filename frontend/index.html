@@ -1592,6 +1592,74 @@ let cvTracker = {
   nextId: 1
 };
 
+// Anti-fluctuation headcount voting buffer and transition debounce
+let cvCountBuffer = [];
+let cvStableCount = null;
+let cvPendingCount = null;
+let cvPendingStreak = 0;
+
+function getStabilizedHeadcount(rawCount) {
+  cvCountBuffer.push(rawCount);
+  if (cvCountBuffer.length > 9) cvCountBuffer.shift();
+
+  // Find statistical Mode (majority vote)
+  const freq = {};
+  let maxFreq = 0;
+  let modeVal = rawCount;
+  cvCountBuffer.forEach(function(v) {
+    freq[v] = (freq[v] || 0) + 1;
+    if (freq[v] > maxFreq) {
+      maxFreq = freq[v];
+      modeVal = v;
+    }
+  });
+
+  if (cvStableCount === null) {
+    cvStableCount = modeVal;
+    cvPendingCount = modeVal;
+    cvPendingStreak = 0;
+    return cvStableCount;
+  }
+
+  // Require 4 consecutive cycles of the new mode before transitioning count
+  if (modeVal !== cvStableCount) {
+    if (modeVal === cvPendingCount) {
+      cvPendingStreak++;
+      if (cvPendingStreak >= 4) {
+        cvStableCount = modeVal;
+        cvPendingStreak = 0;
+      }
+    } else {
+      cvPendingCount = modeVal;
+      cvPendingStreak = 1;
+    }
+  } else {
+    cvPendingStreak = 0;
+  }
+
+  return cvStableCount;
+}
+
+function showToast(msg, type = 'ok') {
+  let toast = document.getElementById('verdant-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'verdant-toast';
+    toast.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#1A161A;border:1px solid var(--ok);color:var(--white);padding:12px 20px;border-radius:12px;font-size:12px;font-weight:600;box-shadow:0 8px 32px rgba(0,0,0,0.6);z-index:99999;transition:all 0.3s ease;display:flex;align-items:center;gap:10px;pointer-events:none;';
+    document.body.appendChild(toast);
+  }
+  const color = (type === 'crit') ? 'var(--crit)' : (type === 'warn' ? 'var(--orange)' : 'var(--ok)');
+  toast.style.borderColor = color;
+  toast.innerHTML = '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + color + ';animation:pulse 1.5s infinite"></span><span>' + msg + '</span>';
+  toast.style.opacity = '1';
+  toast.style.transform = 'translateY(0)';
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(12px)';
+  }, 4000);
+}
+
 // Asynchronous background pre-warming of COCO-SSD
 function prewarmCocoSsd() {
   if (window.cocoSsd && !cvModel && !cvModelLoading) {
@@ -1858,14 +1926,13 @@ function updateOccupantTracker(rawDetections, canvasWidth, canvasHeight) {
   // If no raw detections this frame, age all existing tracks
   if (!rawDetections || rawDetections.length === 0) {
     cvTracker.tracks.forEach(function(tr){ tr.missed++; });
-    cvTracker.tracks = cvTracker.tracks.filter(function(tr){ return tr.missed < 10; });
-    return cvTracker.tracks;
+    cvTracker.tracks = cvTracker.tracks.filter(function(tr){ return tr.missed < 8; });
+    return cvTracker.tracks.filter(function(tr){ return tr.confirmed && tr.missed <= 3; });
   }
 
   const unmatchedRaw = [...rawDetections];
-  const matchedTracks = new Set();
 
-  // Match existing tracks with highest IoU / spatial proximity
+  // Match existing tracks with highest spatial proximity
   cvTracker.tracks.forEach(function(track) {
     let bestIdx = -1;
     let bestDist = 999999;
@@ -1876,7 +1943,7 @@ function updateOccupantTracker(rawDetections, canvasWidth, canvasHeight) {
       const cCX = cand.bbox[0] + cand.bbox[2] / 2;
       const cCY = cand.bbox[1] + cand.bbox[3] / 2;
       const dist = Math.hypot(trCX - cCX, trCY - cCY);
-      if (dist < bestDist && dist < canvasWidth * 0.35) {
+      if (dist < bestDist && dist < canvasWidth * 0.32) {
         bestDist = dist;
         bestIdx = idx;
       }
@@ -1888,14 +1955,13 @@ function updateOccupantTracker(rawDetections, canvasWidth, canvasHeight) {
       track.score = track.score * 0.65 + matched.score * 0.35;
       track.hits++;
       track.missed = 0;
-      track.confirmed = true;
-      matchedTracks.add(track);
+      if (track.hits >= 2) track.confirmed = true;
     } else {
       track.missed++;
     }
   });
 
-  // Create new tracks for unmatched detections
+  // Create new tentative tracks for unmatched detections
   unmatchedRaw.forEach(function(cand) {
     cvTracker.tracks.push({
       id: cvTracker.nextId++,
@@ -1904,13 +1970,36 @@ function updateOccupantTracker(rawDetections, canvasWidth, canvasHeight) {
       score: cand.score,
       hits: 1,
       missed: 0,
-      confirmed: true
+      confirmed: false // Requires 2 consecutive hits to confirm!
     });
   });
 
-  // Filter out expired tracks (hysteresis keeps tracks alive for ~1.3s during blinks/occlusions)
-  cvTracker.tracks = cvTracker.tracks.filter(function(tr){ return tr.missed < 10; });
-  return cvTracker.tracks;
+  // Spatial Overlap Merging: if two tracks have centers closer than 18% of screen width,
+  // merge them so a single occupant is never double-counted
+  for (let i = 0; i < cvTracker.tracks.length; i++) {
+    for (let j = i + 1; j < cvTracker.tracks.length; j++) {
+      const t1 = cvTracker.tracks[i];
+      const t2 = cvTracker.tracks[j];
+      if (!t1 || !t2 || t1.missed >= 8 || t2.missed >= 8) continue;
+      const c1 = t1.targetBox[0] + t1.targetBox[2] / 2;
+      const c2 = t2.targetBox[0] + t2.targetBox[2] / 2;
+      if (Math.abs(c1 - c2) < canvasWidth * 0.18) {
+        if (t1.hits >= t2.hits) {
+          t1.hits += t2.hits;
+          if (t1.hits >= 2) t1.confirmed = true;
+          t2.missed = 999;
+        } else {
+          t2.hits += t1.hits;
+          if (t2.hits >= 2) t2.confirmed = true;
+          t1.missed = 999;
+        }
+      }
+    }
+  }
+
+  // Filter out expired tracks
+  cvTracker.tracks = cvTracker.tracks.filter(function(tr){ return tr.missed < 8; });
+  return cvTracker.tracks.filter(function(tr){ return tr.confirmed && tr.missed <= 3; });
 }
 
 function drawCyberBoundingBoxes(ctx, canvasWidth, canvasHeight, tracks, isMirrored) {
@@ -2068,10 +2157,10 @@ async function startWebcamDetector() {
           track.box[3] += (track.targetBox[3] - track.box[3]) * 0.32;
         });
 
-        // If held, draw the held bounding boxes
+        // If held, draw the held bounding boxes, otherwise only draw confirmed active tracks
         const displayTracks = (state.cvHeld && state.heldDetections && state.heldDetections.length)
           ? state.heldDetections
-          : cvTracker.tracks;
+          : cvTracker.tracks.filter(function(tr){ return tr.confirmed && tr.missed <= 3; });
 
         drawCyberBoundingBoxes(ctx, canvas.width, canvas.height, displayTracks, state.cvMirror);
       }
@@ -2132,14 +2221,18 @@ async function startWebcamDetector() {
         }
 
         // Feed into temporal hysteresis tracker
-        const activeTracks = updateOccupantTracker(rawDetections, canvas.width, canvas.height);
-        if (activeTracks.length > 0) {
-          state.lastDetections = JSON.parse(JSON.stringify(activeTracks));
+        const activeConfirmedTracks = updateOccupantTracker(rawDetections, canvas.width, canvas.height);
+        if (activeConfirmedTracks.length > 0) {
+          state.lastDetections = JSON.parse(JSON.stringify(activeConfirmedTracks));
         }
 
-        // Determine final display headcount
-        const count = (state.cvHeld && state.heldCount != null) ? state.heldCount : activeTracks.length;
-        const avgScore = count > 0 ? (activeTracks.length ? activeTracks.reduce(function(acc, d){ return acc + (d.score || 0.98); }, 0) / activeTracks.length : 0.98) : 0.96;
+        // Pass through anti-fluctuation statistical majority stabilizer
+        const rawHeadcount = activeConfirmedTracks.length;
+        const stabilizedHeadcount = getStabilizedHeadcount(rawHeadcount);
+
+        // Determine final display headcount (latched if held)
+        const count = (state.cvHeld && state.heldCount != null) ? state.heldCount : stabilizedHeadcount;
+        const avgScore = count > 0 ? (activeConfirmedTracks.length ? activeConfirmedTracks.reduce(function(acc, d){ return acc + (d.score || 0.98); }, 0) / activeConfirmedTracks.length : 0.98) : 0.96;
         state.cvConf = avgScore * 100.0;
 
         // Update active engine label
@@ -2238,6 +2331,10 @@ function stopWebcamDetector() {
   }
   cvTracker.tracks = [];
   cvLastFrameData = null;
+  cvCountBuffer = [];
+  cvStableCount = null;
+  cvPendingCount = null;
+  cvPendingStreak = 0;
 }
 
 // Global Event Listeners
@@ -2445,7 +2542,14 @@ document.addEventListener('click',async e=>{
 
         await syncAlerts();
         render();
-        alert('✓ Camera detection HELD and pushed to backend!\n\nRoom 202 is now locked at ' + count + ' occupants [ACTUAL].\n\nDigital Twin, Energy Simulation, and RoomWise Consolidation are now holding this data for the final output.');
+        if (state.cvSource === 'webcam' && cvStream) {
+          const vElem = document.getElementById('cv-webcam');
+          if (vElem) {
+            vElem.srcObject = cvStream;
+            vElem.play().catch(()=>{});
+          }
+        }
+        showToast('✓ Camera headcount latched at ' + count + ' occupants [ACTUAL / HELD]. Digital Twin & Optimizer synchronized.', 'ok');
       }
     } catch(err){}
   }

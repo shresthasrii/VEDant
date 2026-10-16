@@ -78,9 +78,9 @@ def ingest_reading(
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (room_id, now, target_hour, count, smoothed, source, confidence, final_st, provenance))
         
-        # If hold is requested or source is camera:
+        # If hold is requested:
         # Hold and link this count across the active schedule block for this room
-        if hold or source == "camera":
+        if hold:
             cursor.execute("SELECT id, start_hour, end_hour FROM classes WHERE room_id = ?", (room_id,))
             cls_rows = cursor.fetchall()
             for c_row in cls_rows:
@@ -112,7 +112,7 @@ def ingest_reading(
         "source": source,
         "confidence": confidence,
         "provenance": provenance,
-        "held": hold or (source == "camera"),
+        "held": hold,
         "risk_alert": risk_alert
     }
 
