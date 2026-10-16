@@ -54,6 +54,7 @@ class OccupancyIngest(BaseModel):
     confidence: float = Field(1.0, ge=0.0, le=1.0)
     source: str = "camera" # 'camera' or 'simulated'
     hold: bool = Field(False, description="Whether to hold/lock this reading across the active class session")
+    release_hold: Optional[bool] = Field(False, description="Whether to release an active hold on this room")
 
 class EnergyBreakdown(BaseModel):
     hvac_kw: float

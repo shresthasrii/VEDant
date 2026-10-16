@@ -2,7 +2,7 @@ from fastapi import APIRouter, Query, HTTPException
 from typing import Optional, List, Dict, Any
 from backend.db import get_db
 from backend.schemas import OccupancyIngest
-from backend.services.occupancy import ingest_reading
+from backend.services.occupancy import ingest_reading, get_held_state, release_room_hold
 from backend.ws import ws_manager
 
 router = APIRouter(prefix="", tags=["occupancy"])
@@ -53,7 +53,8 @@ async def ingest_occupancy(data: OccupancyIngest):
         confidence=data.confidence,
         timestamp=data.timestamp,
         hour=data.hour,
-        hold=data.hold
+        hold=data.hold,
+        release_hold=bool(data.release_hold)
     )
     
     # Queue patch to WebSocket clients (at 4 Hz rate limit)
@@ -65,8 +66,28 @@ async def ingest_occupancy(data: OccupancyIngest):
     return {
         "status": "success",
         "processed": result,
-        "held": result.get("held", False)
+        "held": result.get("held", False),
+        "held_state": result.get("held_state")
     }
+
+@router.get("/occupancy/hold-state")
+def get_room_hold_state(room_id: Optional[str] = Query(None, alias="room")) -> Dict[str, Any]:
+    """Retrieve active camera latch/hold state for a room or all rooms."""
+    return get_held_state(room_id)
+
+@router.post("/occupancy/hold/release")
+async def release_hold(room_id: str = Query("202", alias="room")) -> Dict[str, Any]:
+    """Explicitly release an active camera hold on a room."""
+    released = release_room_hold(room_id)
+    ws_manager.queue_patch({
+        "type": "room_occupancy_update",
+        "data": {
+            "room_id": room_id,
+            "held": False,
+            "release": True
+        }
+    })
+    return {"room_id": room_id, "released": released, "held": False}
 
 @router.get("/occupancy/24h")
 def get_occupancy_24h(room_id: str = Query("202", alias="room")) -> Dict[str, Any]:
@@ -100,8 +121,24 @@ def get_occupancy_24h(room_id: str = Query("202", alias="room")) -> Dict[str, An
         hourly_records = []
         hour_map = {r["hour"]: r for r in rows}
         
+        held_info = get_held_state(room_id)
+        is_held = bool(held_info.get("held", False))
+        held_count = held_info.get("count")
+        
         for h in range(24):
-            if h in hour_map:
+            # If room is locked/held, reflect held headcount across daytime hours (09:00 - 18:00)
+            if is_held and 9 <= h <= 18 and held_count is not None:
+                hourly_records.append({
+                    "hour": h,
+                    "time_slot": f"{h:02d}:00",
+                    "count": held_count,
+                    "smoothed_count": float(held_count),
+                    "status": "occupied" if held_count > 0 else "unoccupied",
+                    "provenance": "ACTUAL",
+                    "samples": hour_map[h]["total_samples"] if h in hour_map else 1,
+                    "last_recorded": held_info.get("timestamp")
+                })
+            elif h in hour_map:
                 r = hour_map[h]
                 cnt = int(round(r["count"])) if r["count"] is not None else 0
                 hourly_records.append({
@@ -134,5 +171,8 @@ def get_occupancy_24h(room_id: str = Query("202", alias="room")) -> Dict[str, An
             "retention_policy": "30 days rolling in SQLite (zero images stored)",
             "hourly_timeline": hourly_records,
             "total_samples_logged": sum(r["samples"] for r in hourly_records),
-            "export_url": "/export/occupancy.csv"
+            "export_url": "/export/occupancy.csv",
+            "is_held": is_held,
+            "held_count": held_count if is_held else None,
+            "held_state": held_info
         }

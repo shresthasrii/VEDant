@@ -8,6 +8,20 @@ _BUFFER_WINDOW = 5
 _DEBOUNCE_THRESHOLD = 3
 _room_buffers: Dict[str, List[int]] = {}
 _room_debounce: Dict[str, Dict[str, Any]] = {}
+_HELD_ROOMS: Dict[str, Dict[str, Any]] = {}
+
+def get_held_state(room_id: Optional[str] = None) -> Dict[str, Any]:
+    """Retrieve active latch/hold metadata for a room or all rooms."""
+    if room_id:
+        return _HELD_ROOMS.get(room_id, {"room_id": room_id, "held": False, "count": None})
+    return {"held_rooms": _HELD_ROOMS}
+
+def release_room_hold(room_id: str) -> bool:
+    """Explicitly release an active camera hold on a room."""
+    if room_id in _HELD_ROOMS:
+        del _HELD_ROOMS[room_id]
+        return True
+    return False
 
 def smooth_count(room_id: str, raw_count: int) -> float:
     """Applies median filter over window 5."""
@@ -45,13 +59,29 @@ def ingest_reading(
     confidence: float = 1.0,
     timestamp: Optional[str] = None,
     hour: Optional[int] = None,
-    hold: bool = False
+    hold: bool = False,
+    release_hold: bool = False
 ) -> Dict[str, Any]:
     """Ingest camera or synthetic detection reading and update SQLite."""
     now = timestamp or datetime.now().isoformat()
     target_hour = hour if hour is not None else datetime.now().hour
     
     smoothed = smooth_count(room_id, count)
+
+    if release_hold:
+        release_room_hold(room_id)
+        hold = False
+    elif hold:
+        _HELD_ROOMS[room_id] = {
+            "room_id": room_id,
+            "held": True,
+            "count": count,
+            "smoothed": smoothed,
+            "hour": target_hour,
+            "confidence": confidence,
+            "source": source,
+            "timestamp": now
+        }
     
     with get_db() as conn:
         cursor = conn.cursor()
@@ -79,18 +109,23 @@ def ingest_reading(
         """, (room_id, now, target_hour, count, smoothed, source, confidence, final_st, provenance))
         
         # If hold is requested:
-        # Hold and link this count across the active schedule block for this room
+        # Hold and link this count across daytime operating hours (09:00 - 18:00)
+        # plus any scheduled class blocks for this room
         if hold:
+            hold_hours = set(range(9, 19))
             cursor.execute("SELECT id, start_hour, end_hour FROM classes WHERE room_id = ?", (room_id,))
             cls_rows = cursor.fetchall()
             for c_row in cls_rows:
                 sh, eh = c_row["start_hour"], c_row["end_hour"]
                 for h_slot in range(sh, eh):
-                    if h_slot != target_hour:
-                        cursor.execute("""
-                        INSERT INTO occupancy_readings (room_id, timestamp, hour, count, smoothed_count, source, confidence, status, provenance)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (room_id, now, h_slot, count, smoothed, source, confidence, final_st, provenance))
+                    hold_hours.add(h_slot)
+
+            for h_slot in hold_hours:
+                if h_slot != target_hour:
+                    cursor.execute("""
+                    INSERT INTO occupancy_readings (room_id, timestamp, hour, count, smoothed_count, source, confidence, status, provenance)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (room_id, now, h_slot, count, smoothed, source, confidence, final_st, provenance))
         
         # If room is within safe capacity, release any previous containment lock
         if count < 60:
@@ -113,6 +148,7 @@ def ingest_reading(
         "confidence": confidence,
         "provenance": provenance,
         "held": hold,
+        "held_state": _HELD_ROOMS.get(room_id),
         "risk_alert": risk_alert
     }
 

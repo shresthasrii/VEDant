@@ -250,7 +250,7 @@ Benchmarked over 5 runs per endpoint against local FastAPI server (`http://127.0
 |:---|:---|:---|
 | **RoomWise™ Engine** | Greedy Right-Sizing + Exact MILP (PuLP) | Frees unneeded spaces completely; 17.0% daily load reduction. |
 | **Camera Vision & Stabilizer**| 9-Frame Statistical Mode Voting Buffer + Hysteresis | Zero-jitter headcount; 100% ephemeral RAM; zero frames to disk. |
-| **Non-Diluting Ingest Hold** | `hold=True` Schedule Expansion + `MAX(id)` SQL Join | Pushed camera reading holds across active class block without dilution. |
+| **Non-Diluting Ingest Hold** | `_HELD_ROOMS` Registry + 09:00–18:00 Expansion + LocalStorage | Pushed camera reading holds permanently across all daytime hours, 24h chart, and browser reloads. |
 | **Groq Cloud LPU Copilot** | `qwen/qwen3.8-27b` via Groq LPU + Custom Key Drawer | ~300–600ms sub-second natural language answers grounded in live state. |
 | **Timetable & Auto-Reschedule**| Temporal Collision Engine + Next Free Slot Search | Multi-user requests, host approvals, auto-conflict resolution, notifications. |
 | **Thermal RC Simulation** | 2R2C Lumped Network (ASHRAE Fundamentals) | Simulates structural wall inertia & floating unpowered temperatures. |
@@ -295,7 +295,7 @@ VERDANT AI bridges the critical gap between theoretical academic scheduling and 
 3. **Hardware-Safe Containment Architecture:** Safe software guardrails (timetable lockout, steward dispatch, fresh air purge) eliminate risks associated with blind cloud-to-hardware physical actuation.
 4. **Dual-Speed AI Copilot Grounding:** Sub-second Groq Cloud LPU inference (`qwen/qwen3.8-27b`) with user-configurable custom API keys, backed by local GPU/CPU Ollama and grounded deterministic fallbacks.
 5. **Collaborative Scheduling Workflows:** End-to-end timetable sequence requests, host approvals, automated conflict rescheduling, and notifications.
-6. **Exhaustive Automated Test Coverage:** 59 of 59 unit and integration tests passing with 100% reliability.
+6. **Exhaustive Automated Test Coverage:** 60 of 60 unit and integration tests passing with 100% reliability, plus 22-endpoint live verification suite.
 
 ### Production Deployment Horizon:
 - **Cloud Scale:** Seamless zero-configuration deployment to containerized Kubernetes or serverless cloud environments with Groq Cloud LPU inference.

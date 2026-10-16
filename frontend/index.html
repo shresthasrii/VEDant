@@ -306,11 +306,11 @@ return head('Occupancy Intelligence','See how room utilization lines up with mod
 
 function vVis(){
   const h=state.hour;
-  const count=(OCC['202']&&OCC['202'][h]!=null)?OCC['202'][h]:24;
+  const count = (state.cvHeld && state.heldCount != null) ? state.heldCount : ((OCC['202'] && OCC['202'][h] != null) ? OCC['202'][h] : 24);
   return head('Live Camera Vision & CV Ingest','Real-time edge person detection. Video frames are processed ephemerally in RAM and immediately discarded. Emits headcount only.')+
     '<div class="g4">'+
       kpi('vision','CV Worker Status',state.cvActive?'STREAMING':'ONLINE','',state.cvActive?'Live Edge Camera Ingest Active':'Ingesting at 1.0 FPS into Room 202','','ACTUAL')+
-      kpi('vision','Live Detection Count','<span data-live="cv-kpi-count">'+count+'</span>','people','Seminar Hall (202) · Class 0 (Person)','hi','ACTUAL')+
+      kpi('vision','Live Detection Count','<span data-live="cv-kpi-count">'+count+'</span>','people','Seminar Hall (202) · Class 0 (Person)' + (state.cvHeld ? ' [HELD]' : ''),'hi','ACTUAL')+
       kpi('vision','Detection Confidence','<span data-live="cv-kpi-conf">'+(state.cvConf?state.cvConf.toFixed(1):'96.2')+'</span>','%','Ultralytics YOLO / TF.js COCO-SSD / Edge CV','','ACTUAL')+
       kpi('vision','Privacy Standard','VERIFIED','','0 frames stored · No face recognition','','ACTUAL')+
     '</div>'+
@@ -395,38 +395,41 @@ function vVis(){
           '</ul>'+
         '</div>'+
       '</div>'+
-    '</div>' + render24HourTelemetry();
+    '</div>' + '<div data-live="cv-24h">' + render24HourTelemetry() + '</div>';
 }
 
 function render24HourTelemetry() {
   const hNow = state.hour;
   const roomOcc = OCC['202'] || [];
   const hours = [...Array(24).keys()];
+  const isHeld = state.cvHeld && state.heldCount != null;
+  const heldVal = isHeld ? state.heldCount : null;
   
   return '<div class="card" style="margin-top:14px">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:12px">' +
       '<div>' +
         '<h3>Continuous 24-Hour Telemetry History <small>Seminar Hall (Room 202)</small></h3>' +
-        '<span class="mu">Full 24h continuous historical telemetry stored in SQLite database · Live camera feeds active slot</span>' +
+        '<span class="mu">Full 24h continuous historical telemetry stored in SQLite database · ' + (isHeld ? '<b style="color:var(--orange)">[LATCHED / HELD AT ' + heldVal + ' OCCUPANTS]</b>' : 'Live camera feeds active slot') + '</span>' +
       '</div>' +
       '<div style="display:flex;gap:8px;align-items:center">' +
-        '<span class="chip" style="color:var(--ok);border-color:var(--ok)"><i style="animation:pulse 1.5s infinite"></i>24H RECORDING ACTIVE</span>' +
+        '<span class="chip" style="color:' + (isHeld ? 'var(--orange)' : 'var(--ok)') + ';border-color:' + (isHeld ? 'var(--orange)' : 'var(--ok)') + '"><i style="animation:pulse 1.5s infinite"></i>' + (isHeld ? '🔒 HEADCOUNT HELD' : '24H RECORDING ACTIVE') + '</span>' +
         '<a class="btn ghost" href="/export/occupancy.csv" download>Export 24H CSV</a>' +
       '</div>' +
     '</div>' +
     '<div style="overflow-x:auto;padding-bottom:8px">' +
       '<div style="display:grid;grid-template-columns:repeat(24,minmax(28px,1fr));gap:4px;text-align:center">' +
         hours.map(function(h) {
-          const val = roomOcc[h] != null ? roomOcc[h] : 0;
+          let val = (isHeld && h >= 9 && h <= 18) ? heldVal : (roomOcc[h] != null ? roomOcc[h] : 0);
           const isCurrent = (h === hNow);
           const pct = Math.min(100, Math.round((val / 60) * 100));
-          return '<div style="background:' + (isCurrent ? 'rgba(76,195,138,0.18)' : 'rgba(22,19,22,0.6)') + ';border:1px solid ' + (isCurrent ? 'var(--ok)' : 'var(--line)') + ';border-radius:8px;padding:6px 2px">' +
+          const barColor = isCurrent ? (isHeld ? 'var(--orange)' : 'var(--ok)') : (val > 0 ? (isHeld ? 'rgba(239,126,50,0.85)' : 'var(--orange)') : 'rgba(186,186,186,0.2)');
+          return '<div style="background:' + (isCurrent ? 'rgba(76,195,138,0.18)' : 'rgba(22,19,22,0.6)') + ';border:1px solid ' + (isCurrent ? (isHeld ? 'var(--orange)' : 'var(--ok)') : 'var(--line)') + ';border-radius:8px;padding:6px 2px">' +
             '<div style="font-size:9px;color:var(--gray);margin-bottom:4px">' + hh(h).slice(0,2) + 'h</div>' +
             '<div style="height:48px;display:flex;align-items:flex-end;justify-content:center;margin-bottom:4px">' +
-              '<div style="width:12px;background:' + (isCurrent ? 'var(--ok)' : (val > 0 ? 'var(--orange)' : 'rgba(186,186,186,0.2)')) + ';height:' + Math.max(4, pct * 0.48) + 'px;border-radius:3px"></div>' +
+              '<div style="width:12px;background:' + barColor + ';height:' + Math.max(4, pct * 0.48) + 'px;border-radius:3px"></div>' +
             '</div>' +
-            '<b style="font-size:11px;color:' + (isCurrent ? 'var(--ok)' : (val > 0 ? 'var(--white)' : 'var(--gray)')) + '">' + val + '</b>' +
-            '<div style="font-size:8px;text-transform:uppercase;color:' + (isCurrent ? 'var(--ok)' : 'var(--gray)') + ';margin-top:2px">' + (isCurrent ? 'LIVE' : (val > 0 ? 'OCC' : 'OFF')) + '</div>' +
+            '<b style="font-size:11px;color:' + (isCurrent ? (isHeld ? 'var(--orange)' : 'var(--ok)') : (val > 0 ? 'var(--white)' : 'var(--gray)')) + '">' + val + '</b>' +
+            '<div style="font-size:8px;text-transform:uppercase;color:' + (isCurrent ? (isHeld ? 'var(--orange)' : 'var(--ok)') : (val > 0 ? 'var(--gray)' : 'var(--gray)')) + ';margin-top:2px">' + (isCurrent ? (isHeld ? 'HELD' : 'LIVE') : (val > 0 ? (isHeld ? 'HELD' : 'OCC') : 'OFF')) + '</div>' +
           '</div>';
         }).join('') +
       '</div>' +
@@ -434,7 +437,7 @@ function render24HourTelemetry() {
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);font-size:12px">' +
       '<div><span class="mu">Target Chamber:</span> <b>Seminar Hall (202)</b> · Cap 60</div>' +
       '<div><span class="mu">Recording Span:</span> <b>24 Hours Continuous</b> (00:00 – 23:00)</div>' +
-      '<div><span class="mu">Database Persistence:</span> <b>SQLite occupancy_readings</b> (1,840+ samples)</div>' +
+      '<div><span class="mu">Database Persistence:</span> <b>SQLite occupancy_readings</b> (' + (isHeld ? 'Latched at ' + heldVal + ' across 09:00–18:00' : '1,840+ samples') + ')</div>' +
       '<div><span class="mu">Retention Policy:</span> <b>30 Days Rolling</b> · 0 video frames persisted</div>' +
     '</div>' +
   '</div>';
@@ -2165,6 +2168,68 @@ function drawCyberBoundingBoxes(ctx, canvasWidth, canvasHeight, tracks, isMirror
   });
 }
 
+function synthesizeHeldBoxes(count) {
+  const canvas = document.getElementById('cv-canvas');
+  const cW = (canvas && canvas.width > 0) ? canvas.width : 1280;
+  const cH = (canvas && canvas.height > 0) ? canvas.height : 720;
+  const boxes = [];
+  const n = Math.max(0, count);
+  const nCols = Math.min(n, 4) || 1;
+  const colW = cW / (nCols + 1);
+  for (let i = 0; i < n; i++) {
+    const col = i % 4;
+    const row = Math.floor(i / 4);
+    const boxW = Math.round(cW * 0.16);
+    const boxH = Math.round(cH * 0.46);
+    const bx = Math.round(colW * (col + 0.6) - (boxW / 2));
+    const by = Math.round(cH * 0.20 + row * 140);
+    boxes.push({
+      id: i + 1,
+      box: [bx, by, boxW, boxH],
+      targetBox: [bx, by, boxW, boxH],
+      score: 0.98,
+      confirmed: true
+    });
+  }
+  return boxes;
+}
+
+function updateCvHoldUI(count, isHeld) {
+  const holdBtn = document.querySelector('[data-a="toggle-cv-hold"]');
+  if (holdBtn) {
+    holdBtn.className = 'btn ' + (isHeld ? 'ok' : 'ghost');
+    holdBtn.innerHTML = isHeld ? '🔒 RELEASE HOLD' : '⏸ HOLD / LATCH COUNT';
+  }
+  const pushBtn = document.querySelector('[data-a="push-ingest"]');
+  if (pushBtn) {
+    pushBtn.className = 'btn ' + (isHeld ? 'ok' : '');
+    pushBtn.innerHTML = isHeld ? '⚡ Push & Lock to Backend (Held)' : '⚡ Push & Lock to Backend';
+  }
+  const engineLabel = document.getElementById('cv-engine-label');
+  if (engineLabel) {
+    engineLabel.innerText = isHeld
+      ? '🔒 DATA HELD / LATCHED: ' + count + ' OCCUPANTS'
+      : (cvModel ? '⚡ NEURAL COCO-SSD (Deep Learning)' : '⚡ ADAPTIVE MULTI-PERSON TRACKER ACTIVE');
+    if (engineLabel.parentElement) {
+      engineLabel.parentElement.style.color = isHeld ? 'var(--orange)' : 'var(--ok)';
+    }
+  }
+  const hudCount = document.getElementById('cv-hud-count');
+  if (hudCount) {
+    hudCount.innerText = 'Occupants in View: ' + count + (count === 1 ? ' Person' : ' People') + ' Detected (' + (isHeld ? 'LATCHED' : '98%') + ')';
+    hudCount.style.color = isHeld ? 'var(--orange)' : 'var(--ok)';
+  }
+  const testCountBadge = document.querySelector('[data-live="cv-count"]');
+  if (testCountBadge) {
+    testCountBadge.innerText = count;
+    testCountBadge.style.color = isHeld ? 'var(--orange)' : 'inherit';
+  }
+  const kpiCountBadge = document.querySelector('[data-live="cv-kpi-count"]');
+  if (kpiCountBadge) kpiCountBadge.innerText = count;
+
+  partial();
+}
+
 async function startWebcamDetector() {
   stopWebcamDetector();
   try {
@@ -2368,6 +2433,11 @@ async function startWebcamDetector() {
         // Update Room 202 headcount in state
         if (OCC['202']) {
           OCC['202'][state.hour] = count;
+          if (state.cvHeld && state.heldCount != null) {
+            for (let hr = 9; hr <= 18; hr++) {
+              OCC['202'][hr] = state.heldCount;
+            }
+          }
           state.roomProvenance['202'] = 'ACTUAL';
         }
       } catch(inferErr) {
@@ -2577,13 +2647,69 @@ document.addEventListener('click',async e=>{
   else if(a=='toggle-cv-hold'){
     state.cvHeld = !state.cvHeld;
     if(state.cvHeld){
-      state.heldCount = (OCC['202'] && OCC['202'][state.hour] != null) ? OCC['202'][state.hour] : 4;
-      state.heldDetections = (state.lastDetections && state.lastDetections.length) ? state.lastDetections : [];
-      addCvLog('LATCH ACTIVE: Camera headcount locked at ' + state.heldCount + ' occupants.', 'var(--orange)');
+      const count = (state.heldCount != null) ? state.heldCount : ((OCC['202'] && OCC['202'][state.hour] != null) ? OCC['202'][state.hour] : 4);
+      state.heldCount = count;
+      state.heldDetections = (state.lastDetections && state.lastDetections.length)
+        ? JSON.parse(JSON.stringify(state.lastDetections))
+        : synthesizeHeldBoxes(count);
+
+      try {
+        localStorage.setItem('verdant_cv_held', JSON.stringify({
+          held: true, count: count, hour: state.hour, room_id: '202', detections: state.heldDetections, timestamp: Date.now()
+        }));
+      } catch(e) {}
+
+      if (OCC['202']) {
+        for (let hr = 9; hr <= 18; hr++) {
+          OCC['202'][hr] = count;
+        }
+        state.roomProvenance['202'] = 'ACTUAL';
+      }
+      BASE = sim(P0);
+      O = sim(state.opt);
+
+      fetch(API_BASE + '/ingest/occupancy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: '202',
+          count: count,
+          confidence: (state.cvConf ? state.cvConf / 100.0 : 0.98),
+          source: 'camera',
+          hour: state.hour,
+          hold: true
+        })
+      }).catch(()=>{});
+
+      addCvLog('LATCH ACTIVE: Camera headcount locked at ' + state.heldCount + ' occupants across all views.', 'var(--orange)');
+      updateCvHoldUI(count, true);
     } else {
+      const prevCount = state.heldCount;
+      state.cvHeld = false;
+      state.heldCount = null;
+      state.heldDetections = [];
+      try {
+        localStorage.removeItem('verdant_cv_held');
+      } catch(e) {}
+
+      fetch(API_BASE + '/occupancy/hold/release?room=202', { method: 'POST' }).catch(()=>{});
+      fetch(API_BASE + '/ingest/occupancy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: '202',
+          count: prevCount || 0,
+          confidence: 0.98,
+          source: 'camera',
+          hour: state.hour,
+          hold: false,
+          release_hold: true
+        })
+      }).catch(()=>{});
+
       addCvLog('LATCH RELEASED: Resuming live camera stream detection.', 'var(--ok)');
+      updateCvHoldUI(OCC['202'] ? OCC['202'][state.hour] : 0, false);
     }
-    render();
   }
   else if(a=='push-ingest'){
     try {
@@ -2593,62 +2719,90 @@ document.addEventListener('click',async e=>{
       state.cvHeld = true;
       state.heldCount = count;
 
-      const res = await fetch(API_BASE+'/ingest/occupancy', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          room_id:'202',
+      if (state.lastDetections && state.lastDetections.length > 0) {
+        state.heldDetections = JSON.parse(JSON.stringify(state.lastDetections));
+      } else {
+        state.heldDetections = synthesizeHeldBoxes(count);
+      }
+
+      try {
+        localStorage.setItem('verdant_cv_held', JSON.stringify({
+          held: true,
           count: count,
-          confidence: (state.cvConf ? state.cvConf/100.0 : 0.98),
+          hour: h,
+          room_id: '202',
+          detections: state.heldDetections,
+          timestamp: Date.now()
+        }));
+      } catch(e) {}
+
+      // Latch across active daytime operating hours (09:00 - 18:00) so all downstream views reflect it
+      if (OCC['202']) {
+        for (let hr = 9; hr <= 18; hr++) {
+          OCC['202'][hr] = count;
+        }
+        state.roomProvenance['202'] = 'ACTUAL';
+      }
+
+      // Re-simulate Digital Twin model so energy demand & savings immediately reflect the camera data!
+      BASE = sim(P0);
+      O = sim(state.opt);
+
+      const res = await fetch(API_BASE + '/ingest/occupancy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: '202',
+          count: count,
+          confidence: (state.cvConf ? state.cvConf / 100.0 : 0.98),
           source: 'camera',
           hour: h,
           hold: true
         })
       });
-      if(res.ok){
-        addCvLog('Manual Push: Room 202 headcount locked at '+count+' [ACTUAL / HELD]', 'var(--ok)');
-        if(count > 60){
+
+      if (res.ok) {
+        addCvLog('Manual Push: Room 202 headcount locked at ' + count + ' [ACTUAL / HELD]', 'var(--ok)');
+        if (count > 60) {
           addCvLog('CRITICAL RISK TRIGGERED: Overcrowding hazard created in Room 202!', 'var(--crit)');
         }
-        // Hold across active class slots (14:00 - 16:00) so all downstream views reflect it
-        if(OCC['202']) {
-          for(let hr = 14; hr <= 16; hr++) {
-            OCC['202'][hr] = count;
-          }
-          state.roomProvenance['202'] = 'ACTUAL';
-        }
-        // Re-simulate Digital Twin model so energy demand & savings immediately reflect the camera data!
-        BASE = sim(P0);
-        O = sim(state.opt);
-        
         try {
-          const optRes = await fetch(API_BASE+'/optimize', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-              day: 'Monday',
-              capacity_margin: state.capacityMargin / 100.0,
-              disruption_penalty: state.disruptionPenalty,
-              solver: state.solverType
-            })
-          });
-          if (optRes.ok) {
-            state.currentPlan = await optRes.json();
+          const h24Res = await fetch(API_BASE + '/occupancy/24h?room=202');
+          if (h24Res.ok) {
+            const h24Data = await h24Res.json();
+            if (h24Data && h24Data.hourly_timeline) {
+              h24Data.hourly_timeline.forEach(function(item) {
+                if (OCC['202']) OCC['202'][item.hour] = item.count;
+              });
+            }
           }
         } catch(e) {}
-
-        await syncAlerts();
-        render();
-        if (state.cvSource === 'webcam' && cvStream) {
-          const vElem = document.getElementById('cv-webcam');
-          if (vElem) {
-            vElem.srcObject = cvStream;
-            vElem.play().catch(()=>{});
-          }
-        }
-        showToast('✓ Camera headcount latched at ' + count + ' occupants [ACTUAL / HELD]. Digital Twin & Optimizer synchronized.', 'ok');
       }
-    } catch(err){}
+
+      try {
+        const optRes = await fetch(API_BASE + '/optimize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            day: 'Monday',
+            capacity_margin: state.capacityMargin / 100.0,
+            disruption_penalty: state.disruptionPenalty,
+            solver: state.solverType
+          })
+        });
+        if (optRes.ok) {
+          state.currentPlan = await optRes.json();
+        }
+      } catch(e) {}
+
+      await syncAlerts();
+
+      updateCvHoldUI(count, true);
+
+      showToast('✓ Camera headcount latched at ' + count + ' occupants [ACTUAL / HELD]. Digital Twin & Optimizer synchronized.', 'ok');
+    } catch(err) {
+      console.error('Push ingest error:', err);
+    }
   }
   else if(a=='execute-alert'){
     try {
@@ -3181,21 +3335,32 @@ function initWebSocket() {
           for(const p of msg.patches) {
             if(p.type === 'room_occupancy_update') {
               const r = p.data;
-              if(OCC[r.room_id]) {
+              if (r.held === false && r.release) {
+                state.cvHeld = false;
+                state.heldCount = null;
+                state.heldDetections = [];
+                try { localStorage.removeItem('verdant_cv_held'); } catch(e) {}
+                updateCvHoldUI(OCC[r.room_id] ? OCC[r.room_id][state.hour] : 0, false);
+              } else if (r.held || (state.cvHeld && r.room_id === '202')) {
+                const heldVal = (r.count != null) ? r.count : state.heldCount;
+                state.cvHeld = true;
+                state.heldCount = heldVal;
+                if(OCC[r.room_id]) {
+                  for(let hr = 9; hr <= 18; hr++) {
+                    OCC[r.room_id][hr] = heldVal;
+                  }
+                  state.roomProvenance[r.room_id] = 'ACTUAL';
+                }
+              } else if(OCC[r.room_id]) {
                 const targetH = (r.hour != null) ? r.hour : state.hour;
                 OCC[r.room_id][targetH] = r.count;
                 if(r.source === 'camera' || r.provenance === 'ACTUAL') {
                   state.roomProvenance[r.room_id] = 'ACTUAL';
-                  if(r.held || r.source === 'camera') {
-                    for(let hr = 14; hr <= 16; hr++) {
-                      OCC[r.room_id][hr] = r.count;
-                    }
-                  }
                 }
-                BASE = sim(P0);
-                O = sim(state.opt);
-                partial();
               }
+              BASE = sim(P0);
+              O = sim(state.opt);
+              partial();
             }
           }
         }
@@ -3284,10 +3449,11 @@ async function syncIntelligence() {
 // Initial Data Sync from REST API
 async function initialSync() {
   try {
-    const [roomsRes, ttRes, optRes] = await Promise.all([
+    const [roomsRes, ttRes, optRes, occ24Res] = await Promise.all([
       fetch(API_BASE+'/rooms'),
       fetch(API_BASE+'/timetable'),
-      fetch(API_BASE+'/optimize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({day:'Monday'})})
+      fetch(API_BASE+'/optimize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({day:'Monday'})}),
+      fetch(API_BASE+'/occupancy/24h?room=202')
     ]);
     if(roomsRes.ok) {
       const liveRooms = await roomsRes.json();
@@ -3306,6 +3472,50 @@ async function initialSync() {
     if(optRes.ok) {
       state.currentPlan = await optRes.json();
     }
+    if(occ24Res && occ24Res.ok) {
+      const occ24 = await occ24Res.json();
+      if(occ24) {
+        if(occ24.is_held || (occ24.held_state && occ24.held_state.held)) {
+          state.cvHeld = true;
+          state.heldCount = occ24.held_count || (occ24.held_state && occ24.held_state.count);
+          if(!state.heldDetections || state.heldDetections.length === 0) {
+            state.heldDetections = synthesizeHeldBoxes(state.heldCount);
+          }
+        }
+        if(occ24.hourly_timeline && OCC['202']) {
+          occ24.hourly_timeline.forEach(function(item) {
+            OCC['202'][item.hour] = item.count;
+          });
+          state.roomProvenance['202'] = 'ACTUAL';
+        }
+      }
+    }
+    // Also re-verify with localStorage in case client latched ahead of network
+    try {
+      const savedHold = localStorage.getItem('verdant_cv_held');
+      if (savedHold) {
+        const parsed = JSON.parse(savedHold);
+        if (parsed && parsed.held && parsed.count != null) {
+          state.cvHeld = true;
+          state.heldCount = parsed.count;
+          if (parsed.detections && parsed.detections.length) {
+            state.heldDetections = parsed.detections;
+          } else {
+            state.heldDetections = synthesizeHeldBoxes(parsed.count);
+          }
+          if (OCC['202']) {
+            for (let hr = 9; hr <= 18; hr++) {
+              OCC['202'][hr] = parsed.count;
+            }
+            state.roomProvenance['202'] = 'ACTUAL';
+          }
+        }
+      }
+    } catch(e) {}
+
+    BASE = sim(P0);
+    O = sim(state.opt);
+
     await syncAlerts();
     await syncRequests();
     await syncIntelligence();
@@ -3315,6 +3525,26 @@ async function initialSync() {
   }
   initWebSocket();
 }
+
+try {
+  const bootHold = localStorage.getItem('verdant_cv_held');
+  if (bootHold) {
+    const p = JSON.parse(bootHold);
+    if (p && p.held && p.count != null) {
+      state.cvHeld = true;
+      state.heldCount = p.count;
+      state.heldDetections = (p.detections && p.detections.length) ? p.detections : synthesizeHeldBoxes(p.count);
+      if (OCC['202']) {
+        for (let hr = 9; hr <= 18; hr++) {
+          OCC['202'][hr] = p.count;
+        }
+        state.roomProvenance['202'] = 'ACTUAL';
+      }
+      BASE = sim(P0);
+      O = sim(state.opt);
+    }
+  }
+} catch(e) {}
 
 render();
 initialSync();

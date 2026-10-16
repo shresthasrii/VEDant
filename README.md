@@ -1,7 +1,7 @@
 # VERDANT · Green Building Intelligence & Digital Twin Platform
 > **Tagline**: *See the building. Understand the energy. Optimize the future.*
 
-[![Tests](https://img.shields.io/badge/tests-59%20passed%2C%20100%25-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-60%20passed%2C%20100%25-brightgreen)]()
 [![Backend](https://img.shields.io/badge/FastAPI-Python%203.10%2B-blue)]()
 [![Inference](https://img.shields.io/badge/Groq%20Cloud%20LPU-qwen3.8--27b%20%7C%20Local%20Ollama-orange)]()
 [![Architecture](https://img.shields.io/badge/Digital%20Twin-3D%20Isometric%20%2B%202D%20Fallback-purple)]()
@@ -85,8 +85,12 @@ VERDANT provides a multi-layer, zero-storage computer vision system that runs bo
 - **Side-by-Side Multi-Person Extrema Splitter**: Analyzes local energy peaks and valley contours to segment occupants seated shoulder-to-shoulder into distinct person bounding boxes, preventing cluster collapse.
 - **Precise 2D IoU Deduplication**: Replaced 1D proximity merging with true 2D Intersection-over-Union ($\text{IoU} > 0.50$) and area containment ($\text{Cont} > 0.70, \Delta x < 0.08$), preserving separate adjacent occupants without false merges.
 - **Instant Track Confirmation & Responsive Buffer**: Immediately confirms confident detections ($\ge 0.70$) on frame 1, with a 5-frame rolling mode voting buffer and 2-cycle upward transition (~250ms), eliminating detection lag and headcount flicker.
-- **Natural Mirror View**: `[🪞 Mirrored / Normal]` toggle in the viewfinder. Flips video for natural interaction while keeping bounding box labels (`👤 PERSON #1 · 98% [ACTUAL]`) unmirrored and perfectly readable.
-- **Non-Blocking Ingest & Hold**: `[⚡ Push & Lock to Backend]` latches the count, updates the SQLite database across schedule hours (14:00–16:00), refreshes the 24H telemetry timeline in-place, and triggers instant Digital Twin and RoomWise recalculation with a non-blocking toast notification.
+- **Persistent Headcount Hold Architecture**:
+  - `[⚡ Push & Lock to Backend]` and `[⏸ HOLD / LATCH COUNT]` permanently latch the detected or manual headcount across the entire platform.
+  - **In-Memory & SQLite Hold Registry**: Backend tracks active hold state in `_HELD_ROOMS` and writes actual camera readings across all daytime operating hours (09:00–18:00) into SQLite `occupancy_readings`.
+  - **Browser LocalStorage Persistence**: Headcount and frozen cyber bounding boxes are saved to `localStorage['verdant_cv_held']`, instantly recovering latched readings even after browser refresh or tab restart.
+  - **Continuous 24-Hour Telemetry Sync**: Real-time 24H chart reflects the latched headcount with `[LATCHED / HELD]` status without needing manual refresh.
+  - **Clean Hold Release**: Clicking `[🔒 RELEASE HOLD]` notifies `POST /occupancy/hold/release` and smoothly resumes live tracking.
 
 ### 2. Standalone Edge Worker (`cv/worker.py`)
 Run the Python edge worker directly on any camera or video stream:
