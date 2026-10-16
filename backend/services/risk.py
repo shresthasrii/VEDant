@@ -358,6 +358,10 @@ def dismiss_alert(alert_id: str, reason: str = "Dismissed by facility manager") 
             VALUES (?, 'RISK_ALERT_DISMISSED', 'risk_alert', ?, ?)
         """, (now, alert_id, f"Dismissed reason: {reason}"))
         
+        # If this was a room-locking containment alert, release class locks
+        if alt["room_id"] and alt["action_type"] == "LOCK_AND_DISPATCH":
+            cursor.execute("UPDATE classes SET locked = 0 WHERE room_id = ? AND id NOT IN ('c9', 'c10')", (alt["room_id"],))
+        
         cursor.execute("SELECT * FROM risk_alerts WHERE id = ?", (alert_id,))
         updated = dict(cursor.fetchone())
         updated["auto_executed"] = bool(updated.get("auto_executed", 0))

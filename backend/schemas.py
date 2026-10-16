@@ -49,9 +49,11 @@ class ClassItem(BaseModel):
 class OccupancyIngest(BaseModel):
     room_id: str
     timestamp: Optional[str] = None
+    hour: Optional[int] = Field(None, ge=0, le=23, description="Hour of reading (0-23)")
     count: int = Field(..., ge=0, description="Person headcount must be non-negative")
     confidence: float = Field(1.0, ge=0.0, le=1.0)
     source: str = "camera" # 'camera' or 'simulated'
+    hold: bool = Field(False, description="Whether to hold/lock this reading across the active class session")
 
 class EnergyBreakdown(BaseModel):
     hvac_kw: float

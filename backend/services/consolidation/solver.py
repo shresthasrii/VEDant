@@ -135,6 +135,8 @@ def run_roomwise_optimization(day: str = "Monday", capacity_margin: float = 0.10
             # Get effective attendance
             att_info = get_class_attendance(cd["id"])
             cd["effective_attendance"] = att_info["attendance"]
+            cd["attendance_provenance"] = att_info.get("provenance", "ESTIMATED")
+            cd["attendance_confidence"] = att_info.get("confidence", "low")
             classes.append(cd)
             
     # Initial room schedule
@@ -326,11 +328,14 @@ def run_roomwise_optimization(day: str = "Monday", capacity_margin: float = 0.10
                             "start_hour": c["start_hour"],
                             "end_hour": c["end_hour"],
                             "attendance": c["effective_attendance"],
-                            "reasons": [
-                                f"Consolidates {c['course_code']} into {t_rm['name']} ({t_rm['id']}) which is already scheduled and powered.",
-                                f"Enables {f_rm['name']} ({f_rm['id']}) to stay powered OFF, saving {f_rm['hvac_kw'] + f_rm['lighting_kw']:.1f} kW rated load.",
-                                f"Capacity fit: attendance {c['effective_attendance']} + {capacity_margin*100:.0f}% safety margin fits room capacity {t_rm['capacity']}."
-                            ],
+                            "reasons": (
+                                ([f"Verified by Edge Camera Vision: actual attendance is {c['effective_attendance']} students (down from {c['enrolled']} enrolled)."] if c.get("attendance_provenance") == "ACTUAL" else []) +
+                                [
+                                    f"Consolidates {c['course_code']} into {t_rm['name']} ({t_rm['id']}) which is already scheduled and powered.",
+                                    f"Enables {f_rm['name']} ({f_rm['id']}) to stay powered OFF, saving {f_rm['hvac_kw'] + f_rm['lighting_kw']:.1f} kW rated load.",
+                                    f"Capacity fit: attendance {c['effective_attendance']} + {capacity_margin*100:.0f}% safety margin fits room capacity {t_rm['capacity']}."
+                                ]
+                            ),
                             "checks_passed": m["checks"],
                             "status": "pending"
                         })

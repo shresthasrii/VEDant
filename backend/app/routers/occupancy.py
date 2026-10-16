@@ -51,7 +51,9 @@ async def ingest_occupancy(data: OccupancyIngest):
         count=data.count,
         source=data.source,
         confidence=data.confidence,
-        timestamp=data.timestamp
+        timestamp=data.timestamp,
+        hour=data.hour,
+        hold=data.hold
     )
     
     # Queue patch to WebSocket clients (at 4 Hz rate limit)
@@ -62,7 +64,8 @@ async def ingest_occupancy(data: OccupancyIngest):
     
     return {
         "status": "success",
-        "processed": result
+        "processed": result,
+        "held": result.get("held", False)
     }
 
 @router.get("/occupancy/24h")
