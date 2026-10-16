@@ -33,17 +33,20 @@ timeout /t 1 /nobreak >nul
 
 echo.
 echo ===============================================================================
-echo  SUCCESS: All VERDANT subsystems are active and running!
-echo  - Web Application:       http://localhost:8000
-echo  - Interactive API Docs:  http://localhost:8000/docs
-echo  - Executive ESG Report:  http://localhost:8000/export/audit-report
-echo  - AI Facility Copilot:   Integrated in Web App (GPU Llama 3.2)
-echo  - Sensor Fleet Matrix:   12-Room Hardware Telemetry & Drills
-echo  - 2D Blueprint Fallback: http://localhost:8000/?mode=2d
+echo  SUCCESS: All VERDANT enterprise subsystems are active and running!
+echo  - Web Application:       http://127.0.0.1:8000
+echo  - Interactive API Docs:  http://127.0.0.1:8000/docs
+echo  - Executive ESG Report:  http://127.0.0.1:8000/export/audit-report
+echo  - AI Facility Copilot:   Integrated in Web App (GPU Llama 3.2 + Actions)
+echo  - Solar PV & BESS:       100 kWp Rooftop Array + 50 kWh Storage
+echo  - Anomaly Radar:         Z-Score & IQR Outlier Screening
+echo  - Predictive Health:     Bathtub Curve Equipment Maintenance
+echo  - BEE Star Rating:       5-Star / SuperECBC Net-Zero Ready (78.4 EUI)
+echo  - 2D Blueprint Fallback: http://127.0.0.1:8000/?mode=2d
 echo ===============================================================================
 echo.
 echo Opening VERDANT in your default web browser...
-start http://localhost:8000
+start http://127.0.0.1:8000
 echo.
 echo Press any key to stop all VERDANT background services...
 pause >nul
