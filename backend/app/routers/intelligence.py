@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from backend.services.tariff import (
     load_factors, calculate_tod_energy_cost, compare_tod_scenarios

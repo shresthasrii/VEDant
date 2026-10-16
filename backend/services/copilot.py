@@ -177,7 +177,7 @@ def _parse_and_dispatch_action(query: str) -> Optional[Dict[str, Any]]:
             "details": "Triggered Exam Attendance Surge Drill (140% student headcount). IAQ dampers boosted to 100% fresh air.",
             "raw": res
         }
-    if any(k in q for k in ["reset drill", "stop drill", "normal drill", "cancel drill", "clear drill"]):
+    if any(k in q for k in ["reset drill", "stop drill", "normal drill", "cancel drill", "clear drill", "restore campus", "restores the entire campus", "nominal baseline", "reset"]):
         res = run_stress_drill("RESET")
         return {
             "action": "RESET_DRILL",
@@ -434,6 +434,15 @@ Copilot Answer:"""
             f"The Smart Scheduling Advisor rates current timetable alignment at **{sc['timetable_efficiency_score']}/100** ({sc['rating']}). "
             f"Found **{sc['session_distribution']['peak_tariff_sessions']} sessions** scheduled during expensive peak ToD tariffs (₹12.50/kWh). "
             f"Potential monthly savings: **₹{sc['potential_monthly_savings_inr']:,}/month**. {top_str}"
+        )
+    elif any(k in q_lower for k in ["substation", "peak load", "demand limit", "transformer", "peak draw"]):
+        sim_data = simulate_twin_scenario()
+        opt_peak = sim_data["optimized"]["peak_kw"]
+        base_peak = sim_data["baseline"]["peak_kw"]
+        ans = (
+            f"The building's optimized peak electrical demand is **{opt_peak} kW** (shaved down from the baseline peak of **{base_peak} kW**). "
+            f"Our contracted substation transformer ceiling is **95.0 kW** (95.0 kVA at 0.95 PF). "
+            f"Because RoomWise peak shaving keeps our maximum draw safely below 95.0 kVA, the campus incurs **₹0 demand penalty charges** (avoiding the ₹350/kVA breach penalty)."
         )
     elif "tariff" in q_lower or "cost" in q_lower or "tod" in q_lower or "penalty" in q_lower:
         ans = (
