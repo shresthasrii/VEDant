@@ -3341,15 +3341,28 @@ function initWebSocket() {
                 state.heldDetections = [];
                 try { localStorage.removeItem('verdant_cv_held'); } catch(e) {}
                 updateCvHoldUI(OCC[r.room_id] ? OCC[r.room_id][state.hour] : 0, false);
-              } else if (r.held || (state.cvHeld && r.room_id === '202')) {
-                const heldVal = (r.count != null) ? r.count : state.heldCount;
+              } else if (r.held === true) {
                 state.cvHeld = true;
-                state.heldCount = heldVal;
+                state.heldCount = r.count;
+                try {
+                  const saved = JSON.parse(localStorage.getItem('verdant_cv_held') || '{}');
+                  saved.held = true;
+                  saved.count = r.count;
+                  localStorage.setItem('verdant_cv_held', JSON.stringify(saved));
+                } catch(e) {}
                 if(OCC[r.room_id]) {
                   for(let hr = 9; hr <= 18; hr++) {
-                    OCC[r.room_id][hr] = heldVal;
+                    OCC[r.room_id][hr] = r.count;
                   }
                   state.roomProvenance[r.room_id] = 'ACTUAL';
+                }
+              } else if (state.cvHeld && r.room_id === '202') {
+                // Room 202 is CURRENTLY HELD: IGNORE any unheld live streaming readings!
+                const heldVal = state.heldCount;
+                if (OCC['202'] && heldVal != null) {
+                  for(let hr = 9; hr <= 18; hr++) {
+                    OCC['202'][hr] = heldVal;
+                  }
                 }
               } else if(OCC[r.room_id]) {
                 const targetH = (r.hour != null) ? r.hour : state.hour;
@@ -3484,7 +3497,11 @@ async function initialSync() {
         }
         if(occ24.hourly_timeline && OCC['202']) {
           occ24.hourly_timeline.forEach(function(item) {
-            OCC['202'][item.hour] = item.count;
+            if (state.cvHeld && state.heldCount != null && item.hour >= 9 && item.hour <= 18) {
+              OCC['202'][item.hour] = state.heldCount;
+            } else {
+              OCC['202'][item.hour] = item.count;
+            }
           });
           state.roomProvenance['202'] = 'ACTUAL';
         }

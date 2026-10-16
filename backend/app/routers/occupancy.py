@@ -57,11 +57,12 @@ async def ingest_occupancy(data: OccupancyIngest):
         release_hold=bool(data.release_hold)
     )
     
-    # Queue patch to WebSocket clients (at 4 Hz rate limit)
-    ws_manager.queue_patch({
-        "type": "room_occupancy_update",
-        "data": result
-    })
+    # Queue patch to WebSocket clients (at 4 Hz rate limit) only if not an ignored unheld overwrite
+    if not result.get("blocked_overwrite"):
+        ws_manager.queue_patch({
+            "type": "room_occupancy_update",
+            "data": result
+        })
     
     return {
         "status": "success",

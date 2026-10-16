@@ -13,15 +13,45 @@ _HELD_ROOMS: Dict[str, Dict[str, Any]] = {}
 def get_held_state(room_id: Optional[str] = None) -> Dict[str, Any]:
     """Retrieve active latch/hold metadata for a room or all rooms."""
     if room_id:
-        return _HELD_ROOMS.get(room_id, {"room_id": room_id, "held": False, "count": None})
+        if room_id in _HELD_ROOMS:
+            return _HELD_ROOMS[room_id]
+        try:
+            with get_db() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='room_holds'")
+                if cursor.fetchone():
+                    cursor.execute("SELECT room_id, count, smoothed_count, hour, confidence, source, timestamp FROM room_holds WHERE room_id = ? AND held = 1", (room_id,))
+                    row = cursor.fetchone()
+                    if row:
+                        _HELD_ROOMS[room_id] = {
+                            "room_id": row["room_id"],
+                            "held": True,
+                            "count": row["count"],
+                            "smoothed": row["smoothed_count"],
+                            "hour": row["hour"],
+                            "confidence": row["confidence"],
+                            "source": row["source"],
+                            "timestamp": row["timestamp"]
+                        }
+                        return _HELD_ROOMS[room_id]
+        except Exception:
+            pass
+        return {"room_id": room_id, "held": False, "count": None}
     return {"held_rooms": _HELD_ROOMS}
 
 def release_room_hold(room_id: str) -> bool:
     """Explicitly release an active camera hold on a room."""
     if room_id in _HELD_ROOMS:
         del _HELD_ROOMS[room_id]
-        return True
-    return False
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='room_holds'")
+            if cursor.fetchone():
+                cursor.execute("DELETE FROM room_holds WHERE room_id = ?", (room_id,))
+    except Exception:
+        pass
+    return True
 
 def smooth_count(room_id: str, raw_count: int) -> float:
     """Applies median filter over window 5."""
@@ -82,6 +112,45 @@ def ingest_reading(
             "source": source,
             "timestamp": now
         }
+        try:
+            with get_db() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS room_holds (
+                    room_id TEXT PRIMARY KEY,
+                    count INTEGER,
+                    smoothed_count REAL,
+                    hour INTEGER,
+                    confidence REAL,
+                    source TEXT,
+                    timestamp TEXT,
+                    held INTEGER DEFAULT 1
+                )
+                """)
+                cursor.execute("""
+                INSERT OR REPLACE INTO room_holds (room_id, count, smoothed_count, hour, confidence, source, timestamp, held)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                """, (room_id, count, smoothed, target_hour, confidence, source, now))
+        except Exception:
+            pass
+    else:
+        active_hold = get_held_state(room_id)
+        if active_hold.get("held"):
+            # Room is HELD/LATCHED! Protect held headcount from background synthetic worker jitter!
+            return {
+                "room_id": room_id,
+                "count": active_hold["count"],
+                "smoothed": active_hold.get("smoothed", active_hold["count"]),
+                "hour": target_hour,
+                "status": "occupied" if active_hold["count"] > 0 else "unoccupied",
+                "source": active_hold.get("source", "camera"),
+                "confidence": active_hold.get("confidence", 0.98),
+                "provenance": "ACTUAL",
+                "held": True,
+                "held_state": active_hold,
+                "blocked_overwrite": True,
+                "risk_alert": None
+            }
     
     with get_db() as conn:
         cursor = conn.cursor()

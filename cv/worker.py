@@ -268,6 +268,18 @@ def run_worker(room_id: str, source: str, backend_url: str, fps: float = 1.0, so
             history_buffer.pop(0)
         smoothed_count = int(round(float(np.median(history_buffer))))
 
+        # Check if room is currently held/locked in backend before emitting synthetic jitter
+        if not cap or not cap.isOpened():
+            try:
+                check_res = requests.get(f"{backend_url}/occupancy/hold-state?room={room_id}", timeout=1.0)
+                if check_res.status_code == 200 and check_res.json().get("held"):
+                    held_cnt = check_res.json().get("count")
+                    print(f"[{ts[11:19]}] [{engine_name}] Room {room_id} is LOCKED/HELD at {held_cnt} occupants. Pausing synthetic stream.")
+                    time.sleep(1.0 / max(0.1, fps))
+                    continue
+            except Exception:
+                pass
+
         payload = {
             "room_id": room_id,
             "timestamp": ts,
@@ -280,7 +292,11 @@ def run_worker(room_id: str, source: str, backend_url: str, fps: float = 1.0, so
         try:
             res = requests.post(f"{backend_url}/ingest/occupancy", json=payload, timeout=3.0)
             if res.status_code == 200:
-                print(f"[{ts[11:19]}] [{engine_name}] Ingested Room {room_id}: {smoothed_count} people (raw: {count}, conf: {conf:.2f}, src: {source_tag})")
+                resp_data = res.json()
+                if resp_data.get("held") or resp_data.get("processed", {}).get("held"):
+                    print(f"[{ts[11:19]}] [{engine_name}] Room {room_id} is LOCKED/HELD at {resp_data.get('processed', {}).get('count')} occupants. Live stream held.")
+                else:
+                    print(f"[{ts[11:19]}] [{engine_name}] Ingested Room {room_id}: {smoothed_count} people (raw: {count}, conf: {conf:.2f}, src: {source_tag})")
             else:
                 print(f"[Warning] Backend returned HTTP {res.status_code}")
         except Exception as e:
