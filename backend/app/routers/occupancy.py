@@ -79,17 +79,21 @@ def get_occupancy_24h(room_id: str = Query("202", alias="room")) -> Dict[str, An
         capacity = rm["capacity"] if rm else 50
         
         cursor.execute("""
-        SELECT hour, 
-               AVG(count) as avg_count, 
-               MAX(smoothed_count) as smoothed,
-               COUNT(*) as total_samples,
-               MAX(provenance) as provenance,
-               MAX(status) as status,
-               MAX(timestamp) as last_timestamp
-        FROM occupancy_readings
-        WHERE room_id = ?
-        GROUP BY hour
-        ORDER BY hour ASC
+        SELECT r.hour, 
+               r.count, 
+               r.smoothed_count as smoothed, 
+               r.status, 
+               r.provenance, 
+               r.timestamp as last_timestamp, 
+               total_tbl.total_samples
+        FROM occupancy_readings r
+        JOIN (
+            SELECT hour, MAX(id) as max_id, COUNT(*) as total_samples
+            FROM occupancy_readings
+            WHERE room_id = ?
+            GROUP BY hour
+        ) total_tbl ON r.id = total_tbl.max_id
+        ORDER BY r.hour ASC
         """, (room_id,))
         rows = cursor.fetchall()
         
@@ -99,12 +103,12 @@ def get_occupancy_24h(room_id: str = Query("202", alias="room")) -> Dict[str, An
         for h in range(24):
             if h in hour_map:
                 r = hour_map[h]
-                cnt = int(round(r["avg_count"])) if r["avg_count"] is not None else 0
+                cnt = int(round(r["count"])) if r["count"] is not None else 0
                 hourly_records.append({
                     "hour": h,
                     "time_slot": f"{h:02d}:00",
                     "count": cnt,
-                    "smoothed_count": round(r["smoothed"] or cnt, 1),
+                    "smoothed_count": round(r["smoothed"] if r["smoothed"] is not None else cnt, 1),
                     "status": r["status"] or ("occupied" if cnt > 0 else "unoccupied"),
                     "provenance": r["provenance"] or "ACTUAL",
                     "samples": r["total_samples"],
