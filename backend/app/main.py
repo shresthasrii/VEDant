@@ -48,7 +48,50 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# Include Routers
+# Vercel Serverless Path Normalizer Middleware
+@app.middleware("http")
+async def vercel_path_normalizer(request, call_next):
+    # Ensure request path accurately reflects the intended API endpoint
+    return await call_next(request)
+
+class VercelPathNormalizerMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            raw_path = scope.get("path", "")
+            
+            # 1. Strip /api/index.py or /api/index prefix if prepended by serverless router
+            if raw_path.startswith("/api/index.py"):
+                remainder = raw_path[len("/api/index.py"):]
+                raw_path = remainder if remainder else "/"
+            elif raw_path.startswith("/api/index"):
+                remainder = raw_path[len("/api/index"):]
+                raw_path = remainder if remainder else "/"
+            
+            # 2. Check for Vercel forwarding headers if path is empty, root or /api
+            if raw_path in ("", "/", "/api", "/api/"):
+                headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+                orig = (
+                    headers.get("x-matched-path")
+                    or headers.get("x-forwarded-uri")
+                    or headers.get("x-real-path")
+                    or headers.get("x-invoke-path")
+                )
+                if orig:
+                    clean_orig = orig.split("?")[0]
+                    if clean_orig and clean_orig not in ("/api/index.py", "/api/index", "/api"):
+                        raw_path = clean_orig
+
+            scope["path"] = raw_path
+            scope["raw_path"] = raw_path.encode("latin-1")
+            
+        await self.app(scope, receive, send)
+
+app.add_middleware(VercelPathNormalizerMiddleware)
+
+# Include Routers under root
 app.include_router(rooms.router)
 app.include_router(occupancy.router)
 app.include_router(timetable.router)
@@ -60,6 +103,22 @@ app.include_router(health.router)
 app.include_router(alerts.router)
 app.include_router(intelligence.router)
 app.include_router(advanced.router)
+
+# Include Routers under /api prefix for dual-path Vercel serverless routing
+from fastapi import APIRouter
+api_router = APIRouter(prefix="/api")
+api_router.include_router(rooms.router)
+api_router.include_router(occupancy.router)
+api_router.include_router(timetable.router)
+api_router.include_router(consolidation.router)
+api_router.include_router(energy.router)
+api_router.include_router(advisor.router)
+api_router.include_router(export.router)
+api_router.include_router(health.router)
+api_router.include_router(alerts.router)
+api_router.include_router(intelligence.router)
+api_router.include_router(advanced.router)
+app.include_router(api_router)
 
 # WebSocket Endpoint (/ws)
 @app.websocket("/ws")

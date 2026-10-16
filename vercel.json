@@ -6,9 +6,19 @@
     }
   },
   "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/api/index.py"
-    }
+    { "source": "/api/(.*)", "destination": "/api/index.py" },
+    { "source": "/intelligence/(.*)", "destination": "/api/index.py" },
+    { "source": "/copilot/(.*)", "destination": "/api/index.py" },
+    { "source": "/rooms(.*)", "destination": "/api/index.py" },
+    { "source": "/occupancy(.*)", "destination": "/api/index.py" },
+    { "source": "/timetable(.*)", "destination": "/api/index.py" },
+    { "source": "/energy(.*)", "destination": "/api/index.py" },
+    { "source": "/advisor(.*)", "destination": "/api/index.py" },
+    { "source": "/health(.*)", "destination": "/api/index.py" },
+    { "source": "/optimize(.*)", "destination": "/api/index.py" },
+    { "source": "/export(.*)", "destination": "/api/index.py" },
+    { "source": "/alerts(.*)", "destination": "/api/index.py" },
+    { "source": "/advanced(.*)", "destination": "/api/index.py" },
+    { "source": "/(.*)", "destination": "/api/index.py" }
   ]
 }
