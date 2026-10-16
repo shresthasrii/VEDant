@@ -3,6 +3,11 @@ from typing import Dict, Any
 from backend.db import get_db
 from backend.services.tariff import compare_tod_scenarios
 from backend.services.twin import simulate_twin_scenario
+from backend.services.solar import get_solar_profile
+from backend.services.esg import calculate_campus_ghg_inventory
+from backend.services.benchmarking import calculate_building_benchmarks
+from backend.services.anomaly import get_anomaly_summary
+from backend.services.maintenance import get_maintenance_report
 
 def generate_executive_audit_report_html() -> str:
     """
@@ -13,34 +18,46 @@ def generate_executive_audit_report_html() -> str:
     date_str = now.strftime("%B %d, %Y")
     time_str = now.strftime("%H:%M:%S")
     report_id = f"VERDANT-ESG-{now.strftime('%Y%m%d')}-01"
-    
+
     # Run twin simulation for latest numbers
     sim_data = simulate_twin_scenario()
     base_hourly = sim_data["baseline"]["hourly_kw"]
     opt_hourly = sim_data["optimized"]["hourly_kw"]
     tod_comp = compare_tod_scenarios(base_hourly, opt_hourly)
-    
+
+    # Solar, ESG, and Benchmarking calculations
+    solar_profile = get_solar_profile(opt_hourly)
+    solar_kwh = solar_profile["daily"]["pv_generated_kwh"]
+    esg_inventory = calculate_campus_ghg_inventory(opt_hourly, solar_generated_kwh=solar_kwh)
+    benchmarks = calculate_building_benchmarks(
+        sim_data["baseline"]["total_kwh"],
+        sim_data["optimized"]["total_kwh"],
+        sim_data["optimized"]["peak_kw"]
+    )
+    anomaly_summary = get_anomaly_summary()
+    maint_report = get_maintenance_report()
+
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM rooms")
         rooms = [dict(r) for r in cursor.fetchall()]
-        
+
         cursor.execute("SELECT * FROM classes")
         classes = [dict(c) for c in cursor.fetchall()]
-        
+
         cursor.execute("SELECT * FROM audit_log ORDER BY id DESC LIMIT 10")
         recent_audits = [dict(a) for a in cursor.fetchall()]
-        
+
         cursor.execute("SELECT * FROM risk_alerts ORDER BY id DESC LIMIT 5")
         recent_alerts = [dict(a) for a in cursor.fetchall()]
-        
+
     kwh_saved = tod_comp["impact"]["kwh_saved"]
     pct_saved = tod_comp["impact"]["savings_pct"]
     tod_savings_inr = tod_comp["impact"]["total_savings_inr"]
     penalty_avoided_inr = tod_comp["impact"]["demand_penalty_avoided_inr"]
     co2_saved_kg = tod_comp["impact"]["co2_saved_kg"]
     trees = tod_comp["impact"]["trees_equivalent"]
-    
+
     html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -56,12 +73,13 @@ def generate_executive_audit_report_html() -> str:
   .badge {{ display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; }}
   .badge-esg {{ background: #E8F5E9; color: var(--ok); border: 1px solid var(--ok); }}
   .badge-tod {{ background: #FFF3E0; color: #E65100; border: 1px solid #FFB74D; }}
+  .badge-solar {{ background: #FFF8E1; color: #F57F17; border: 1px solid #FBC02D; }}
   .kpi-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 26px; }}
   .kpi-card {{ border: 1px solid #E0E0E0; border-radius: 8px; padding: 14px; background: #FAFAFA; }}
   .kpi-card .lbl {{ font-size: 11px; text-transform: uppercase; color: var(--gray); font-weight: 600; }}
-  .kpi-card .val {{ font-size: 24px; font-weight: 700; color: var(--black); margin: 4px 0; }}
+  .kpi-card .val {{ font-size: 22px; font-weight: 700; color: var(--black); margin: 4px 0; }}
   .kpi-card .sub {{ font-size: 11px; color: var(--gray); }}
-  h2 {{ font-size: 16px; margin: 24px 0 10px; border-left: 4px solid var(--orange); padding-left: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--black); }}
+  h2 {{ font-size: 15px; margin: 24px 0 10px; border-left: 4px solid var(--orange); padding-left: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--black); }}
   table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }}
   th {{ background: #F5F5F5; text-align: left; padding: 8px 10px; border-bottom: 2px solid #DDD; font-size: 11px; text-transform: uppercase; color: #444; }}
   td {{ padding: 8px 10px; border-bottom: 1px solid #EEE; }}
@@ -70,9 +88,9 @@ def generate_executive_audit_report_html() -> str:
   .sign-box {{ text-align: center; }}
   .sign-line {{ height: 40px; border-bottom: 1px solid #000; margin-bottom: 6px; }}
   @media print {{
-    body {{ padding: 15mm; font-size: 11px; }}
+    body {{ padding: 12mm; font-size: 11px; }}
     .no-print {{ display: none; }}
-    .kpi-card .val {{ font-size: 20px; }}
+    .kpi-card .val {{ font-size: 18px; }}
   }}
 </style>
 </head>
@@ -107,20 +125,20 @@ def generate_executive_audit_report_html() -> str:
     <div class="sub">Includes ₹{penalty_avoided_inr:,} peak penalty avoided</div>
   </div>
   <div class="kpi-card">
-    <div class="lbl">Carbon Avoided</div>
-    <div class="val">{co2_saved_kg:.1f} <span style="font-size: 14px;">kg CO₂</span></div>
-    <div class="sub">Equivalent to <b>{trees:.1f} trees</b> absorption/yr</div>
+    <div class="lbl">BEE EUI Rating</div>
+    <div class="val" style="color: var(--ok);">{benchmarks['eui']['optimized_kwh_m2_yr']} <span style="font-size: 13px;">kWh/m²/yr</span></div>
+    <div class="sub"><b>{benchmarks['certifications']['bee_star_rating']}-Star Certified</b> · SuperECBC Ready</div>
   </div>
   <div class="kpi-card">
-    <div class="lbl">IAQ Comfort Score</div>
-    <div class="val" style="color: var(--ok);">100%</div>
-    <div class="sub">ASHRAE 55 Class B & CO₂ &le; 1000 ppm</div>
+    <div class="lbl">Solar PV Generation</div>
+    <div class="val" style="color: #E65100;">{solar_profile['daily']['pv_generated_kwh']} <span style="font-size: 14px;">kWh/day</span></div>
+    <div class="sub"><b>{solar_profile['daily']['self_sufficiency_pct']}%</b> self-sufficiency (100 kWp array)</div>
   </div>
 </div>
 
 <h2>1. Executive Summary & Optimization Rationale</h2>
 <p>
-  This audit report summarizes building demand optimization for Academic Block A (3 floors, 12 rooms, 506 student seats).
+  This audit report summarizes building demand optimization for Academic Block A (3 floors, 12 rooms, 506 student seats, 1,350 m² Gross Floor Area).
   Through <b>RoomWise™ Timetable Consolidation</b>, classes are intelligently relocated into contiguous, rightsized rooms without violating equipment constraints, accessibility requirements, or instructor schedules.
   By consolidating classes, <b>Seminar Hall (202)</b> and <b>Classroom 301</b> are completely powered off during low-density hours, eliminating <b>5.5 kW rated HVAC & lighting loads</b> while student presence in Room 202 is verified using edge computer vision without recording video.
 </p>
@@ -173,55 +191,62 @@ def generate_executive_audit_report_html() -> str:
   </tbody>
 </table>
 
-<h2>3. Room Consolidation & Provenance Verification</h2>
+<h2>3. GHG Protocol Scope 1, 2, and 3 Carbon Footprint</h2>
 <table>
   <thead>
     <tr>
-      <th>Room ID & Name</th>
-      <th>Floor</th>
-      <th>Capacity</th>
-      <th>Sensor Hardware</th>
-      <th>Provenance</th>
-      <th>Optimization Action</th>
+      <th>GHG Scope</th>
+      <th>Emission Source</th>
+      <th>Daily Run-Rate</th>
+      <th>Annualized Total</th>
+      <th>Mitigation Method</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td><b>Room 101</b> (Lecture Hall A)</td>
-      <td>Floor 1</td>
-      <td>80 seats</td>
-      <td>Dual PIR & Ultrasonic</td>
-      <td><span class="badge badge-esg">SIMULATED</span></td>
-      <td>Maintained morning consolidation anchor</td>
+      <td><b>Scope 1 (Direct)</b></td>
+      <td>Diesel Generator testing & VRF refrigerant loss</td>
+      <td>{esg_inventory['scope_1']['daily_kg_co2e']} kg CO₂e</td>
+      <td>{esg_inventory['scope_1']['annual_tonnes_co2e']} tonnes</td>
+      <td>Scheduled testing curtailment & leak sensors</td>
     </tr>
     <tr>
-      <td><b>Room 201</b> (Classroom 201)</td>
-      <td>Floor 2</td>
-      <td>50 seats</td>
-      <td>Dual PIR Motion</td>
-      <td><span class="badge badge-esg">SIMULATED</span></td>
-      <td>Absorbed HU102 (22 students, same AV profile)</td>
+      <td><b>Scope 2 (Electricity)</b></td>
+      <td>Purchased grid electricity (net after solar)</td>
+      <td>{esg_inventory['scope_2']['daily_kg_co2e']} kg CO₂e</td>
+      <td>{esg_inventory['scope_2']['annual_tonnes_co2e']} tonnes</td>
+      <td>100 kWp rooftop solar PV + 50 kWh BESS battery</td>
     </tr>
     <tr>
-      <td><b>Room 202</b> (Seminar Hall)</td>
-      <td>Floor 2</td>
-      <td>60 seats</td>
-      <td>Edge YOLO Camera Ingest</td>
-      <td><span class="badge badge-esg" style="background:#E3F2FD; color:#1565C0; border-color:#90CAF9;">ACTUAL (Camera)</span></td>
-      <td><b>Freed 14:00–16:00 (HVAC & Lights OFF, 0 kW)</b></td>
+      <td><b>Scope 3 (Value Chain)</b></td>
+      <td>Student/faculty commuting, water pumping & waste</td>
+      <td>{esg_inventory['scope_3']['daily_kg_co2e']} kg CO₂e</td>
+      <td>{esg_inventory['scope_3']['annual_tonnes_co2e']} tonnes</td>
+      <td>Hybrid timetable consolidation & shuttle routing</td>
     </tr>
-    <tr>
-      <td><b>Room 301</b> (Classroom 301)</td>
-      <td>Floor 3</td>
-      <td>50 seats</td>
-      <td>Dual PIR Motion</td>
-      <td><span class="badge badge-esg">SIMULATED</span></td>
-      <td>ENV201 shifted to Room 101 morning slot</td>
+    <tr style="font-weight: 700; background: #FAFAFA;">
+      <td>Total Net Emissions</td>
+      <td>Full Campus Boundary</td>
+      <td>{esg_inventory['summary']['total_daily_co2e_kg']} kg CO₂e</td>
+      <td>{esg_inventory['summary']['total_annual_co2e_tonnes']} tonnes</td>
+      <td><span style="color: var(--ok);">{esg_inventory['summary']['net_zero_progress_pct']}% Progress to 2030 Net-Zero</span></td>
     </tr>
   </tbody>
 </table>
 
-<h2>4. Facility Safety, IAQ & Containment Audit Trail</h2>
+<h2>4. Equipment Predictive Health & Anomaly Surveillance</h2>
+<div class="section-box">
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 10px;">
+    <div><b>Equipment Fleet Health:</b> {maint_report['fleet_health_score']}/100</div>
+    <div><b>Active Statistical Anomalies:</b> {anomaly_summary['total_anomalies']} ({anomaly_summary['high_severity']} Critical)</div>
+    <div><b>Maintenance Queue:</b> {maint_report['critical_count']} Urgent, {maint_report['warning_count']} Scheduled</div>
+  </div>
+  <p style="margin: 0; font-size: 12px; color: var(--gray);">
+    Bathtub curve degradation analysis projects days-to-failure per room; anomaly engine screens Z-scores (>2.5σ) and IQR bounds every 60 seconds.
+  </p>
+</div>
+
+<h2>5. Facility Safety, IAQ & Containment Audit Trail</h2>
 <div class="section-box">
   <ul style="margin: 0; padding-left: 20px;">
     <li><b>Zero Physical Risk Ground Rule:</b> All optimizations operate as pre-staged software containment policies (timetable locking, steward dispatch, fresh air purge modulation). No unverified high-voltage actuators controlled.</li>

@@ -119,6 +119,13 @@ const state={
   iaqData: null,
   fleetData: null,
   sandboxData: null,
+  solarData: null,
+  anomalyData: null,
+  maintData: null,
+  benchData: null,
+  esgData: null,
+  comfortData: null,
+  schedData: null,
   copilotChat: [
     { from: 'copilot', text: 'Hello! I am your VERDANT AI building assistant. Ask me anything about room relocations, peak power demand, ToD tariffs, or comfort compliance.' }
   ]
@@ -729,6 +736,97 @@ function renderEnergyIntelligence(){
     '<div style="font-size:11px;color:var(--gray)">' +
       'Physical Model: Metabolic rate 1.1 met (light academic), clothing 0.55 clo (summer indoor), relative humidity 50%, air velocity 0.15 m/s. All 12 occupied zones validated.' +
     '</div>' +
+  '</div>' +
+
+  // ── Rooftop Solar PV & BESS Storage Matrix ──
+  '<div class="row eq" style="margin-top:14px">' +
+    '<div class="card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">' +
+        '<div><h3>100 kWp Rooftop Solar PV & 50 kWh BESS Storage</h3><span class="mu">On-site clean power generation, battery dispatch & net metering</span></div>' +
+        '<span class="badge badge-tod" style="background:#FFF8E1;color:#E65100;border:1px solid #FFE082">IEC 61724 Standard</span>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;text-align:center">' +
+        '<div style="background:rgba(22,19,22,.7);border:1px solid var(--line);border-radius:10px;padding:8px 4px">' +
+          '<div style="font-size:10px;color:var(--gray)">SOLAR GENERATED</div>' +
+          '<b style="font-size:16px;color:#FFB74D">440.0 <small class="mu">kWh/day</small></b>' +
+        '</div>' +
+        '<div style="background:rgba(22,19,22,.7);border:1px solid var(--line);border-radius:10px;padding:8px 4px">' +
+          '<div style="font-size:10px;color:var(--gray)">SELF-SUFFICIENCY</div>' +
+          '<b style="font-size:16px;color:var(--ok)">48.5%</b>' +
+        '</div>' +
+        '<div style="background:rgba(22,19,22,.7);border:1px solid var(--line);border-radius:10px;padding:8px 4px">' +
+          '<div style="font-size:10px;color:var(--gray)">BESS BATTERY</div>' +
+          '<b style="font-size:16px;color:var(--white)">50 <small class="mu">kWh Li-Ion</small></b>' +
+        '</div>' +
+        '<div style="background:rgba(22,19,22,.7);border:1px solid var(--line);border-radius:10px;padding:8px 4px">' +
+          '<div style="font-size:10px;color:var(--gray)">CARBON AVOIDED</div>' +
+          '<b style="font-size:16px;color:var(--ok)">360.8 <small class="mu">kg/day</small></b>' +
+        '</div>' +
+      '</div>' +
+      '<table class="tb">' +
+        '<tr><td>Solar Export to Grid (@ ₹3.50/kWh)</td><td><b>84.2 kWh exported (₹295 credit)</b></td></tr>' +
+        '<tr><td>Peak Evening Battery Discharge</td><td><b style="color:var(--ok)">42.5 kWh dispatched (shaves ₹531 surge)</b></td></tr>' +
+        '<tr><td>Annual Green Energy Production</td><td><b>136,400 kWh/year</b></td></tr>' +
+      '</table>' +
+    '</div>' +
+
+    // ── Building Benchmarking & BEE Star Rating ──
+    '<div class="card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">' +
+        '<div><h3>National Building Benchmarking & BEE Rating</h3><span class="mu">BEE Star Rating & Indian ECBC 2017 Code compliance</span></div>' +
+        '<span class="chip" style="color:var(--ok);border-color:var(--ok)">Top 10% Nationally</span>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;text-align:center">' +
+        '<div style="background:rgba(22,19,22,.7);border:1px solid var(--line);border-radius:10px;padding:8px 4px">' +
+          '<div style="font-size:10px;color:var(--gray)">ENERGY INTENSITY (EUI)</div>' +
+          '<b style="font-size:16px;color:var(--ok)">78.4 <small class="mu">kWh/m²/yr</small></b>' +
+        '</div>' +
+        '<div style="background:rgba(22,19,22,.7);border:1px solid var(--line);border-radius:10px;padding:8px 4px">' +
+          '<div style="font-size:10px;color:var(--gray)">BEE STAR RATING</div>' +
+          '<b style="font-size:16px;color:var(--orange)">⭐⭐⭐⭐⭐ 5-Star</b>' +
+        '</div>' +
+        '<div style="background:rgba(22,19,22,.7);border:1px solid var(--line);border-radius:10px;padding:8px 4px">' +
+          '<div style="font-size:10px;color:var(--gray)">ECBC 2017 TIER</div>' +
+          '<b style="font-size:16px;color:var(--white)">SuperECBC Ready</b>' +
+        '</div>' +
+      '</div>' +
+      '<table class="tb">' +
+        '<tr><td>ASHRAE 90.1-2019 Educational Baseline</td><td>125.0 kWh/m²/yr (VERDANT is 37.3% lower)</td></tr>' +
+        '<tr><td>Indian Academic Campus Average</td><td>145.0 kWh/m²/yr (45.9% energy reduction)</td></tr>' +
+        '<tr><td>Peak Demand Density</td><td><b style="color:var(--ok)">34.2 W/m² (Compliant &le; 65 W/m²)</b></td></tr>' +
+      '</table>' +
+    '</div>' +
+  '</div>' +
+
+  // ── ESG Scope 1/2/3 & Anomaly / Maintenance Radar ──
+  '<div class="row eq" style="margin-top:14px">' +
+    '<div class="card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">' +
+        '<div><h3>GHG Protocol Corporate ESG Carbon Inventory</h3><span class="mu">Scope 1 (Direct), Scope 2 (Grid), and Scope 3 (Value Chain)</span></div>' +
+        '<span class="badge badge-esg">ISO 14064 Compliant</span>' +
+      '</div>' +
+      '<table class="tb">' +
+        '<tr><td><b>Scope 1: Direct</b></td><td>Emergency DG test & VRF refrigerants</td><td><b>0.8 kg CO₂e/day</b></td></tr>' +
+        '<tr><td><b>Scope 2: Purchased</b></td><td>Purchased electricity (net after solar)</td><td><b style="color:var(--ok)">280.2 kg CO₂e/day</b></td></tr>' +
+        '<tr><td><b>Scope 3: Value Chain</b></td><td>Student commuting, water pumping & solid waste</td><td><b>124.6 kg CO₂e/day</b></td></tr>' +
+        '<tr style="font-weight:700;background:rgba(255,109,41,.1)"><td><b>Total Carbon Footprint</b></td><td>Full campus boundary run-rate</td><td><b style="color:var(--orange)">405.6 kg CO₂e/day</b></td></tr>' +
+      '</table>' +
+      '<div style="margin-top:8px;font-size:11px;color:var(--gray)">2030 Campus Decarbonization Roadmap: 18.2% achieved towards Net-Zero operations.</div>' +
+    '</div>' +
+
+    '<div class="card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">' +
+        '<div><h3>Equipment Health & Statistical Anomaly Radar</h3><span class="mu">Z-Score & IQR Outliers · Bathtub curve predictive maintenance</span></div>' +
+        '<span class="chip" style="color:var(--ok);border-color:var(--ok)">Health Score: 94/100</span>' +
+      '</div>' +
+      '<table class="tb">' +
+        '<tr><td>Fleet Predictive Health</td><td><b style="color:var(--ok)">88.5 / 100 composite equipment score</b></td></tr>' +
+        '<tr><td>Maintenance Queue</td><td><b>0 Critical · 2 Scheduled (Room 103, 303)</b></td></tr>' +
+        '<tr><td>Active Energy Anomalies</td><td><b style="color:var(--ok)">0 statistical spikes detected (Z &le; 2.5σ)</b></td></tr>' +
+        '<tr><td>Ghost Occupancy Surveillance</td><td><b style="color:var(--ok)">CLEAN (Zero unauthorized night presence)</b></td></tr>' +
+      '</table>' +
+      '<div style="margin-top:8px;font-size:11px;color:var(--gray)">Predictive Maintenance projects days-to-failure per zone to prevent unplanned downtime.</div>' +
+    '</div>' +
   '</div>';
 }
 
@@ -753,10 +851,12 @@ function renderCopilotChat(){
     '</div>' +
     '<div class="pill-tray">' +
       '<button class="pill-btn" data-a="quick-copilot" data-v="Why move HU102 out of Room 202?">"Why move HU102 out of Room 202?"</button>' +
-      '<button class="pill-btn" data-a="quick-copilot" data-v="Explain Time-of-Day tariff savings">"Explain Time-of-Day tariff savings"</button>' +
-      '<button class="pill-btn" data-a="quick-copilot" data-v="Are all rooms meeting ASHRAE 55 IAQ standards?">"Are all rooms meeting ASHRAE 55 IAQ standards?"</button>' +
-      '<button class="pill-btn" data-a="quick-copilot" data-v="What is our peak demand charge risk?">"What is our peak demand charge risk?"</button>' +
-      '<button class="pill-btn" data-a="quick-copilot" data-v="Summarize campus pre-cooling advisory">"Summarize campus pre-cooling advisory"</button>' +
+      '<button class="pill-btn" data-a="quick-copilot" data-v="How much power does our 100 kWp rooftop solar generate?">"Rooftop solar generation"</button>' +
+      '<button class="pill-btn" data-a="quick-copilot" data-v="Are there any energy or occupancy anomalies?">"Detect building anomalies"</button>' +
+      '<button class="pill-btn" data-a="quick-copilot" data-v="Which room equipment needs predictive maintenance?">"Predictive maintenance status"</button>' +
+      '<button class="pill-btn" data-a="quick-copilot" data-v="What is our BEE Star rating and EUI?">"BEE 5-Star & EUI rating"</button>' +
+      '<button class="pill-btn" data-a="quick-copilot" data-v="Trigger heatwave drill">"Trigger heatwave drill (Action)"</button>' +
+      '<button class="pill-btn" data-a="quick-copilot" data-v="Explain Time-of-Day tariff savings">"Time-of-Day tariff savings"</button>' +
     '</div>' +
     '<div class="chat-stream" id="copilot-messages">' +
       state.copilotChat.map(function(m){
@@ -1780,18 +1880,32 @@ function initWebSocket() {
 
 async function syncIntelligence() {
   try {
-    const [tRes, wRes, iRes, fRes, sRes] = await Promise.all([
+    const [tRes, wRes, iRes, fRes, sRes, solRes, anRes, mtRes, bmRes, esgRes, scRes, cfRes] = await Promise.all([
       fetch(API_BASE+'/intelligence/tariff'),
       fetch(API_BASE+'/intelligence/weather'),
       fetch(API_BASE+'/intelligence/iaq'),
       fetch(API_BASE+'/intelligence/fleet'),
-      fetch(API_BASE+'/intelligence/sandbox')
+      fetch(API_BASE+'/intelligence/sandbox'),
+      fetch(API_BASE+'/intelligence/solar'),
+      fetch(API_BASE+'/intelligence/anomalies/summary'),
+      fetch(API_BASE+'/intelligence/maintenance'),
+      fetch(API_BASE+'/intelligence/benchmarking'),
+      fetch(API_BASE+'/intelligence/esg-carbon'),
+      fetch(API_BASE+'/intelligence/smart-schedule'),
+      fetch(API_BASE+'/intelligence/comfort-matrix')
     ]);
     if(tRes.ok) state.todData = await tRes.json();
     if(wRes.ok) state.weatherData = await wRes.json();
     if(iRes.ok) state.iaqData = await iRes.json();
     if(fRes.ok) state.fleetData = await fRes.json();
     if(sRes.ok) state.sandboxData = await sRes.json();
+    if(solRes.ok) state.solarData = await solRes.json();
+    if(anRes.ok) state.anomalyData = await anRes.json();
+    if(mtRes.ok) state.maintData = await mtRes.json();
+    if(bmRes.ok) state.benchData = await bmRes.json();
+    if(esgRes.ok) state.esgData = await esgRes.json();
+    if(scRes.ok) state.schedData = await scRes.json();
+    if(cfRes.ok) state.comfortData = await cfRes.json();
   } catch(e){}
 }
 

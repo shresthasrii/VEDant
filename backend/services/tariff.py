@@ -8,6 +8,10 @@ def load_factors() -> Dict[str, Any]:
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
+TOD_PEAK_RATE = 12.50
+TOD_NORMAL_RATE = 8.00
+TOD_OFFPEAK_RATE = 5.50
+
 def get_tod_rate(hour: int) -> float:
     """Returns Time-of-Day tariff (₹/kWh) for the given hour of day (0-23)."""
     factors = load_factors()
@@ -19,6 +23,17 @@ def get_tod_rate(hour: int) -> float:
         return tod["off_peak"]["rate"]
     else:
         return tod.get("normal", {}).get("rate", 8.00)
+
+def get_tod_slab(hour: int) -> Dict[str, Any]:
+    """Returns detailed dictionary for the ToD slab of an hour."""
+    rate = get_tod_rate(hour)
+    if rate == TOD_PEAK_RATE:
+        return {"label": "Peak Surge", "rate_inr": TOD_PEAK_RATE, "hours": "18:00 - 22:00"}
+    elif rate == TOD_OFFPEAK_RATE:
+        return {"label": "Off-Peak", "rate_inr": TOD_OFFPEAK_RATE, "hours": "22:00 - 06:00"}
+    else:
+        return {"label": "Normal Academic", "rate_inr": TOD_NORMAL_RATE, "hours": "06:00 - 18:00"}
+
 
 def calculate_tod_energy_cost(hourly_kwh: List[float]) -> Dict[str, Any]:
     """

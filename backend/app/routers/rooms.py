@@ -18,17 +18,22 @@ def get_rooms(floor: Optional[int] = None):
         cursor.execute(query, params)
         rows = cursor.fetchall()
         
+        # ── Single batch query for all latest occupancy readings (avoids N+1) ──
+        cursor.execute("""
+        SELECT o.room_id, o.count, o.smoothed_count, o.status, o.source, o.provenance
+        FROM occupancy_readings o
+        INNER JOIN (
+            SELECT room_id, MAX(id) AS max_id
+            FROM occupancy_readings
+            GROUP BY room_id
+        ) latest ON o.room_id = latest.room_id AND o.id = latest.max_id
+        """)
+        occ_map = {row["room_id"]: row for row in cursor.fetchall()}
+
         result = []
         for r in rows:
             rid = r["id"]
-            # Get latest occupancy reading
-            cursor.execute("""
-            SELECT count, smoothed_count, status, source, provenance
-            FROM occupancy_readings 
-            WHERE room_id = ? 
-            ORDER BY id DESC LIMIT 1
-            """, (rid,))
-            occ = cursor.fetchone()
+            occ = occ_map.get(rid)
             
             c = occ["count"] if occ else 0
             sc = occ["smoothed_count"] if occ else 0.0

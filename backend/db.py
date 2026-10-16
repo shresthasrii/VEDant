@@ -10,8 +10,12 @@ DB_PATH = DB_DIR / "verdant.db"
 
 @contextmanager
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA cache_size=-64000;")
+    conn.execute("PRAGMA temp_store=MEMORY;")
     try:
         yield conn
         conn.commit()
@@ -199,3 +203,11 @@ def init_db():
             execution_log TEXT
         )
         """)
+
+        # ── Performance indexes ───────────────────────────────────────────────
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_occ_room_id   ON occupancy_readings(room_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_occ_room_hour ON occupancy_readings(room_id, hour);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status  ON risk_alerts(status);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_energy_room_hour ON energy_readings(room_id, hour);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_classes_room_day ON classes(room_id, day_of_week);")
+

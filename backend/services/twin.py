@@ -1,10 +1,20 @@
 import json
+import time
 import random
+import hashlib
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from backend.db import get_db
 
 CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
+
+# ── 30-second TTL simulation cache ───────────────────────────────────────────
+_sim_cache: Dict[str, Any] = {}
+_SIM_TTL = 30.0  # seconds
+
+def _cache_key(**kwargs) -> str:
+    return hashlib.md5(json.dumps(kwargs, sort_keys=True, default=str).encode()).hexdigest()
+
 
 def get_factors() -> Dict[str, Any]:
     with open(CONFIG_DIR / "factors.json", "r", encoding="utf-8") as f:
@@ -22,14 +32,28 @@ def simulate_twin_scenario(
     """
     Digital twin simulation of building energy demand across 24 hours.
     Calculates hourly HVAC, Lighting, and Plug load demand per room.
+    Results are cached for 30 seconds keyed on input parameters.
     """
+    # ── Check TTL cache first ─────────────────────────────────────────────────
+    ck = _cache_key(
+        hvac_end=hvac_end, lighting_end=lighting_end, setpoint_c=setpoint_c,
+        peak_target_kw=peak_target_kw, occupancy_aware_hvac=occupancy_aware_hvac,
+        occupancy_aware_lighting=occupancy_aware_lighting,
+        selected_rooms=sorted(selected_rooms) if selected_rooms else None
+    )
+    now = time.monotonic()
+    cached = _sim_cache.get(ck)
+    if cached and (now - cached["_ts"]) < _SIM_TTL:
+        return cached["data"]
+
     factors = get_factors()
     tariff = factors["tariff_inr_per_kwh"]
     grid_ef = factors["grid_emission_factor_kg_co2_per_kwh"]
     sp_sens = factors["hvac_sensitivity_per_deg_c"]
     vent_floor = factors["hvac_min_ventilation_floor"]
-    
+
     with get_db() as conn:
+
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM rooms")
         rooms = [dict(r) for r in cursor.fetchall()]
@@ -157,7 +181,7 @@ def simulate_twin_scenario(
     p10 = mc_savings[5]
     p90 = mc_savings[44]
     
-    return {
+    result = {
         "baseline": {
             "total_kwh": r_total_base,
             "peak_kw": round(max(hourly_base), 1),
@@ -200,3 +224,8 @@ def simulate_twin_scenario(
         ],
         "provenance": "ESTIMATED"
     }
+    # ── Store in TTL cache ────────────────────────────────────────────────────
+    _sim_cache[ck] = {"data": result, "_ts": time.monotonic()}
+    return result
+
+
