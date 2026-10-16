@@ -38,3 +38,15 @@ def test_advisor_explain_plan():
     assert res is not None
     assert "summary" in res
     assert "key_findings" in res
+
+def test_advisor_api_endpoint():
+    from fastapi.testclient import TestClient
+    from backend.app.main import app
+    client = TestClient(app)
+    r = client.post("/advisor/explain", json={})
+    assert r.status_code == 200
+    data = r.json()
+    assert "summary" in data
+    assert "key_findings" in data
+    assert "reasons_per_move" in data
+

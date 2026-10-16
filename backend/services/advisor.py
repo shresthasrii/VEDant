@@ -7,8 +7,8 @@ from typing import Dict, Any, Optional
 OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.environ.get("LLM_MODEL", "llama3.2")
 
-def call_ollama(prompt: str, timeout: int = 15) -> Optional[str]:
-    """Call local Ollama instance running llama3.2."""
+def call_ollama(prompt: str, timeout: float = 2.0) -> Optional[str]:
+    """Call local Ollama instance running llama3.2 with snappy fallback."""
     try:
         payload = {
             "model": OLLAMA_MODEL,
@@ -33,10 +33,17 @@ def generate_template_explanation(context: Dict[str, Any]) -> Dict[str, Any]:
     
     reasons_per_move = {}
     for m in moves:
-        reasons_per_move[m["id"]] = (
-            f"Relocating {m['course_code']} ({m['course_name']}) from {m['from_room_name']} to {m['to_room_name']} "
-            f"keeps total attendance ({m['attendance']}) within capacity ({m.get('to_capacity', 50)} seats) with full equipment compatibility. "
-            f"This allows {m['from_room_name']} to remain powered off during this slot."
+        m_id = m.get("id", "move_unknown")
+        code = m.get("course_code") or m.get("class_id", "Class")
+        name = m.get("course_name", "Academic Session")
+        from_r = m.get("from_room_name") or f"Room {m.get('from_room_id', 'Unknown')}"
+        to_r = m.get("to_room_name") or f"Room {m.get('to_room_id', 'Unknown')}"
+        att = m.get("attendance", 20)
+        cap = m.get("to_capacity", 50)
+        reasons_per_move[m_id] = (
+            f"Relocating {code} ({name}) from {from_r} to {to_r} "
+            f"keeps total attendance ({att}) within capacity ({cap} seats) with full equipment compatibility. "
+            f"This allows {from_r} to remain powered off during this slot."
         )
         
     freed_str = ", ".join(empty_rooms) if empty_rooms else "underutilized spaces"
@@ -47,11 +54,20 @@ def generate_template_explanation(context: Dict[str, Any]) -> Dict[str, Any]:
         f"without cancelling lectures or violating room capacity, accessibility, or instructor continuity."
     )
     
+    notice_lines = []
+    for m in moves:
+        code = m.get("course_code") or m.get("class_id", "Class")
+        name = m.get("course_name", "Academic Session")
+        from_r = m.get("from_room_name") or f"Room {m.get('from_room_id', 'Unknown')}"
+        to_r = m.get("to_room_name") or f"Room {m.get('to_room_id', 'Unknown')}"
+        start_h = m.get("start_hour", 14)
+        notice_lines.append(f"• {code} ({name}): {from_r} ➔ {to_r} at {start_h:02d}:00")
+        
     faculty_notice = (
         f"Subject: Green Building Optimization: Room Assignment Notice\n\n"
         f"Dear Faculty & Instructors,\n\n"
         f"As part of the campus sustainability initiative, the following room relocations are scheduled for approval:\n"
-        + "\n".join([f"• {m['course_code']} ({m['course_name']}): {m['from_room_name']} ➔ {m['to_room_name']} at {m['start_hour']:02d}:00" for m in moves])
+        + ("\n".join(notice_lines) if notice_lines else "• All regular classroom allocations maintained.")
         + f"\n\nAll assigned spaces meet full technical equipment and accessibility standards. "
         f"These adjustments will save an estimated {savings:.1f} kWh/day and reduce emissions by {savings * 0.7:.1f} kg CO₂.\n\n"
         f"Thank you for supporting sustainable campus operations.\nCampus Facilities & Energy Office"
