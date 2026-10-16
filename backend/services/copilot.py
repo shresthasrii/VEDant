@@ -42,6 +42,7 @@ from backend.services.comfort import get_building_ieq_matrix, calculate_room_ieq
 from backend.services.budget import calculate_energy_budget_status
 from backend.services.scheduling import evaluate_smart_schedule
 from backend.services.twin import simulate_twin_scenario
+from backend.services.llm import generate_llm_response, DEFAULT_GROQ_API_KEY, DEFAULT_GROQ_MODEL
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434/api/generate")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2")
@@ -294,9 +295,15 @@ def _resolve_specific_course_query(course_code: str) -> str:
     )
 
 
-def ask_copilot(query: str, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+def ask_copilot(
+    query: str,
+    history: Optional[List[Dict[str, str]]] = None,
+    api_key: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None
+) -> Dict[str, Any]:
     """
-    Answers facility director questions via local Ollama LLM (llama3.2)
+    Answers facility director questions via Groq Cloud LPUs / local Ollama LLM
     with seamless deterministic fallback, deep real-time system context,
     and bidirectional operational command execution.
     """
@@ -353,7 +360,7 @@ def ask_copilot(query: str, history: Optional[List[Dict[str, str]]] = None) -> D
         if turns:
             history_str = "\nRecent Conversation:\n" + "\n".join(turns) + "\n"
 
-    # 6. Local GPU Ollama Attempt (llama3.2 on GPU with snappy 4.5s timeout)
+    # 6. Ultra-Fast Groq Cloud LPU or Local GPU LLM Execution
     system_prompt = f"""You are the VERDANT AI Facility Copilot, an enterprise-grade autonomous building intelligence expert and digital twin assistant for Academic Block A (12 rooms, 3 floors, 1,350 m² GFA, 506 student capacity).
 You have deep engineering expertise across:
 - Indian DISCOM Time-of-Day (ToD) tariffs: ₹5.50 off-peak (22:00–06:00), ₹8.00 normal academic hours, ₹12.50 peak surge (18:00–22:00), ₹350/kVA Maximum Demand Charge (MDC) penalty.
@@ -379,28 +386,26 @@ Answer the user's question authoritatively, insightfully, and concisely (2 to 4 
 Strictly cite real numbers from the telemetry snapshot where applicable.
 If asked general questions about building physics, HVAC engineering, machine learning, or sustainability, provide an intelligent, expert response."""
 
-    try:
-        req_data = json.dumps({
-            "model": OLLAMA_MODEL,
-            "system": system_prompt,
-            "prompt": query,
-            "stream": False,
-            "options": {"temperature": 0.2, "num_predict": 220}
-        }).encode("utf-8")
-
-        req = urllib.request.Request(OLLAMA_URL, data=req_data, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=OLLAMA_TIMEOUT_SECONDS) as response:
-            res_json = json.loads(response.read().decode("utf-8"))
-            answer = res_json.get("response", "").strip()
-            if answer and not any(bad in answer.lower() for bad in ["question is not provided", "please provide the question", "cannot answer without a question"]):
-                return {
-                    "answer": answer,
-                    "reply": answer,
-                    "mode": f"Local LLM ({OLLAMA_MODEL} on GPU)",
-                    "provenance": "ESTIMATED"
-                }
-    except Exception:
-        pass
+    llm_res = generate_llm_response(
+        prompt=query,
+        system_prompt=system_prompt,
+        history=history,
+        provider=provider,
+        api_key=api_key,
+        model=model
+    )
+    if llm_res and llm_res.get("reply"):
+        answer = llm_res["reply"]
+        if not any(bad in answer.lower() for bad in ["question is not provided", "please provide the question", "cannot answer without a question"]):
+            return {
+                "answer": answer,
+                "reply": answer,
+                "mode": llm_res.get("mode", "Groq Cloud LPU"),
+                "provider": llm_res.get("provider", "groq"),
+                "latency_ms": llm_res.get("latency_ms"),
+                "model": llm_res.get("model"),
+                "provenance": "ESTIMATED"
+            }
 
     # 7. Comprehensive 24-Domain Grounded Knowledge Base Fallback (< 5ms response)
     if ("why" in q_lower or "explain" in q_lower or "reason" in q_lower) and any(k in q_lower for k in ["202", "move", "relocate", "consolidat", "communication", "hu102"]):

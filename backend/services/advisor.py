@@ -4,6 +4,8 @@ import re
 import requests
 from typing import Dict, Any, Optional
 
+from backend.services.llm import generate_llm_response, DEFAULT_GROQ_MODEL
+
 OLLAMA_URL = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.environ.get("LLM_MODEL", "llama3.2")
 
@@ -101,9 +103,14 @@ def generate_template_explanation(context: Dict[str, Any]) -> Dict[str, Any]:
         "provenance": "ESTIMATED"
     }
 
-def explain_plan(context: Dict[str, Any]) -> Dict[str, Any]:
+def explain_plan(
+    context: Dict[str, Any],
+    api_key: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None
+) -> Dict[str, Any]:
     """
-    Attempts to generate high-quality explanation via local llama3.2.
+    Attempts to generate high-quality explanation via Groq Cloud AI or local Ollama.
     Validates numbers in output to guarantee zero fabricated metrics.
     Falls back gracefully to deterministic template explainer.
     """
@@ -121,16 +128,22 @@ Respond strictly with a JSON object containing keys:
 "faculty_notice": string
 Do not invent any numbers.
 """
-    raw_response = call_ollama(prompt, timeout=25)
-    if raw_response:
+    llm_res = generate_llm_response(
+        prompt=prompt,
+        system_prompt="You are the VERDANT Energy Advisor. Always reply with valid JSON only.",
+        provider=provider,
+        api_key=api_key,
+        model=model
+    )
+    if llm_res and llm_res.get("reply"):
+        raw_response = llm_res["reply"]
         try:
             # Extract JSON block
             m = re.search(r"\{.*\}", raw_response, re.DOTALL)
             if m:
                 parsed = json.loads(m.group(0))
-                # Validate numbers: check if savings_kwh is in text
                 res = generate_template_explanation(context)
-                res["mode"] = f"LLM ({OLLAMA_MODEL})"
+                res["mode"] = llm_res.get("mode", "Groq Cloud AI")
                 if "summary" in parsed:
                     res["summary"] = parsed["summary"]
                 if "key_findings" in parsed and isinstance(parsed["key_findings"], list):
@@ -143,3 +156,4 @@ Do not invent any numbers.
             
     # Reliable deterministic template fallback
     return generate_template_explanation(context)
+

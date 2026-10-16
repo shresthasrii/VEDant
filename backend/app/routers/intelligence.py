@@ -22,6 +22,7 @@ from backend.services.benchmarking import calculate_building_benchmarks
 from backend.services.comfort import get_building_ieq_matrix, calculate_room_ieq
 from backend.services.budget import calculate_energy_budget_status
 from backend.services.scheduling import evaluate_smart_schedule
+from backend.services.llm import get_llm_config, update_llm_config, test_groq_api_key
 
 router = APIRouter(prefix="", tags=["intelligence"])
 
@@ -29,6 +30,18 @@ class CopilotChatRequest(BaseModel):
     query: Optional[str] = None
     prompt: Optional[str] = None
     history: Optional[List[Dict[str, str]]] = None
+    api_key: Optional[str] = None
+    provider: Optional[str] = None # 'groq' | 'ollama'
+    model: Optional[str] = None
+
+class LLMConfigRequest(BaseModel):
+    provider: Optional[str] = None
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+
+class LLMTestRequest(BaseModel):
+    api_key: Optional[str] = None
+    model: Optional[str] = None
 
 class DrillRequest(BaseModel):
     drill_type: str # 'HEATWAVE', 'GRID_CURTAILMENT', 'EXAM_SURGE', 'RESET'
@@ -103,11 +116,40 @@ def execute_drill(req: DrillRequest) -> Dict[str, Any]:
 @router.post("/copilot/chat")
 @router.post("/intelligence/copilot/chat")
 def chat_with_copilot(req: CopilotChatRequest) -> Dict[str, Any]:
-    """Interactive natural language assistant for facility directors powered by local GPU Ollama & Bidirectional NLP Dispatch."""
+    """Interactive natural language assistant for facility directors powered by Groq Cloud LPUs, local GPU Ollama & Bidirectional NLP Dispatch."""
     q = (req.query or req.prompt or "").strip()
     if not q:
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
-    return ask_copilot(q, history=req.history)
+    return ask_copilot(
+        q,
+        history=req.history,
+        api_key=req.api_key,
+        provider=req.provider,
+        model=req.model
+    )
+
+@router.get("/llm/config")
+@router.get("/intelligence/llm/config")
+def get_current_llm_config() -> Dict[str, Any]:
+    """Returns current active LLM engine provider and masked API key status."""
+    return get_llm_config()
+
+@router.post("/llm/config")
+@router.post("/intelligence/llm/config")
+def set_active_llm_config(req: LLMConfigRequest) -> Dict[str, Any]:
+    """Updates active LLM provider (groq | ollama), custom API key, and model."""
+    return update_llm_config(
+        provider=req.provider,
+        api_key=req.api_key,
+        model=req.model
+    )
+
+@router.post("/llm/test")
+@router.post("/intelligence/llm/test")
+def test_llm_credentials(req: LLMTestRequest) -> Dict[str, Any]:
+    """Tests live connection to Groq Cloud API with specified or saved API key."""
+    return test_groq_api_key(api_key=req.api_key, model=req.model)
+
 
 
 # ── New Enterprise Intelligence Endpoints ─────────────────────────────────────

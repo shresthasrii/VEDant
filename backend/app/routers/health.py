@@ -4,6 +4,7 @@ import threading
 import requests
 from fastapi import APIRouter
 from backend.db import get_db
+from backend.services.llm import get_llm_config
 
 router = APIRouter(prefix="", tags=["health"])
 
@@ -51,11 +52,13 @@ def health_check():
         pass
 
     ollama_ok = _get_ollama_status()
+    llm_cfg = get_llm_config()
 
     return {
         "status": "healthy" if db_ok else "degraded",
         "version": "1.0.0",
         "database": {"connected": db_ok, "rooms_loaded": rooms_count},
+        "groq_cloud_llm": {"available": llm_cfg["has_api_key"], "model": llm_cfg["model"], "provider": "Groq LPU Cloud"},
         "ollama_local_llm": {"available": ollama_ok, "model": "llama3.2"},
         "mode": os.environ.get("MODE", "live"),
         "privacy": {

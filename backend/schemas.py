@@ -106,6 +106,9 @@ class AdvisorExplainRequest(BaseModel):
     room_id: Optional[str] = None
     question: Optional[str] = None
     context_type: str = "plan" # 'plan', 'room', 'general'
+    api_key: Optional[str] = None
+    provider: Optional[str] = None # 'groq' | 'ollama'
+    model: Optional[str] = None
 
 class AdvisorResponse(BaseModel):
     mode: str # 'LLM (Ollama llama3.2)' or 'template explanation (no LLM)'

@@ -138,8 +138,13 @@ const state={
   esgData: null,
   comfortData: null,
   schedData: null,
+  llmProvider: localStorage.getItem('verdant_llm_provider') || 'groq',
+  llmApiKey: localStorage.getItem('verdant_llm_api_key') || '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',
+  llmModel: localStorage.getItem('verdant_llm_model') || 'qwen/qwen3.8-27b',
+  showLlmSettings: false,
+  llmTestResult: null,
   copilotChat: [
-    { from: 'copilot', text: 'Hello! I am your VERDANT AI building assistant. Ask me anything about room relocations, peak power demand, ToD tariffs, or comfort compliance.' }
+    { from: 'copilot', text: 'Hello! I am your VERDANT AI building assistant powered by ultra-fast Groq Cloud LPUs. Ask me anything about room relocations, peak power demand, ToD tariffs, or comfort compliance.' }
   ]
 };
 let O=sim(state.opt),last='',lastS='';
@@ -1229,17 +1234,70 @@ function formatCopilotText(str) {
 }
 
 function renderCopilotChat(){
+  const isGroq = state.llmProvider === 'groq';
+  const shortModel = state.llmModel.includes('/') ? state.llmModel.split('/')[1] : state.llmModel;
+
+  const settingsPanel = state.showLlmSettings ? (
+    '<div style="background:rgba(22,19,22,.95);border:1px solid var(--orange);border-radius:14px;padding:16px;margin:10px 0;animation:rise .2s var(--ease)">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">' +
+        '<div>' +
+          '<b style="color:var(--orange);font-size:13px">⚡ Groq Cloud LPU & Custom API Key Configuration</b>' +
+          '<div class="mu" style="font-size:11px">High-speed conversational building intelligence. Connect your personal Groq API key or switch to local Ollama.</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px">' +
+          '<button class="btn ok" data-a="save-llm-settings" style="padding:4px 12px;font-size:11px">💾 Save & Apply</button>' +
+          '<button class="btn ghost" data-a="test-llm-key" style="padding:4px 12px;font-size:11px">⚡ Test Connection</button>' +
+          '<button class="btn ghost" data-a="toggle-llm-settings" style="padding:4px 10px;font-size:11px">✕ Close</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="input-grid">' +
+        '<div class="input-field">' +
+          '<label>Inference Engine Provider</label>' +
+          '<div class="seg" style="width:100%;display:flex">' +
+            '<button style="flex:1" class="' + (isGroq ? 'on' : '') + '" data-a="set-llm-provider" data-v="groq">⚡ Groq Cloud LPU</button>' +
+            '<button style="flex:1" class="' + (!isGroq ? 'on' : '') + '" data-a="set-llm-provider" data-v="ollama">💻 Local Ollama</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="input-field">' +
+          '<label>Model Selection</label>' +
+          '<select id="llm-model-select">' +
+            '<option value="qwen/qwen3.8-27b" ' + (state.llmModel === 'qwen/qwen3.8-27b' ? 'selected' : '') + '>qwen/qwen3.8-27b (Recommended · Ultra-Fast 27B)</option>' +
+            '<option value="openai/gpt-oss-120b" ' + (state.llmModel === 'openai/gpt-oss-120b' ? 'selected' : '') + '>openai/gpt-oss-120b (Large 120B Model)</option>' +
+            '<option value="openai/gpt-oss-20b" ' + (state.llmModel === 'openai/gpt-oss-20b' ? 'selected' : '') + '>openai/gpt-oss-20b (Lightweight Fast)</option>' +
+            '<option value="llama3.2" ' + (state.llmModel === 'llama3.2' ? 'selected' : '') + '>llama3.2 (Local GPU)</option>' +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+      '<div class="input-field" style="margin-bottom:6px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+          '<label>Custom Groq API Key</label>' +
+          '<span style="font-size:11px;color:var(--gray)">Saved locally in your browser & backend config</span>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px">' +
+          '<input id="llm-key-input" type="text" placeholder="gsk_..." value="' + (state.llmApiKey || '') + '" style="font-family:monospace;font-size:12px;flex:1">' +
+          '<button class="btn ghost" data-a="reset-llm-key" style="white-space:nowrap;font-size:11px" title="Restore default system key">Reset Default</button>' +
+        '</div>' +
+      '</div>' +
+      (state.llmTestResult ?
+        '<div style="margin-top:10px;padding:8px 12px;border-radius:8px;font-size:12px;background:' + (state.llmTestResult.valid ? 'rgba(76,195,138,.15)' : 'rgba(242,85,90,.15)') + ';color:' + (state.llmTestResult.valid ? 'var(--ok)' : 'var(--crit)') + ';border:1px solid ' + (state.llmTestResult.valid ? 'var(--ok)' : 'var(--crit)') + '">' +
+          '<b>' + (state.llmTestResult.valid ? '✓ Connection Verified' : '✕ Connection Error') + ':</b> ' + (state.llmTestResult.message || state.llmTestResult.error) +
+        '</div>' : ''
+      ) +
+    '</div>'
+  ) : '';
+
   return '<div class="card" style="margin-bottom:14px;background:rgba(36,28,27,.88);border:1px solid rgba(255,109,41,.45)">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">' +
       '<div>' +
         '<h3 style="color:var(--orange);margin:0">VERDANT Natural Language AI Facility Copilot</h3>' +
-        '<span class="mu">Conversational building intelligence powered by local GPU LLM (Ollama llama3.2) & grounded simulation telemetry</span>' +
+        '<span class="mu">Conversational building intelligence powered by ' + (isGroq ? 'Groq Cloud LPUs (' + shortModel + ')' : 'local GPU Ollama (llama3.2)') + ' & grounded simulation telemetry</span>' +
       '</div>' +
-      '<div style="display:flex;gap:6px">' +
-        '<span class="chip" style="color:var(--ok);border-color:var(--ok)"><i style="background:var(--ok)"></i>Live LLM Assistant</span>' +
+      '<div style="display:flex;gap:6px;align-items:center">' +
+        '<button class="btn ' + (state.showLlmSettings ? 'ok' : 'ghost') + '" style="padding:4px 10px;font-size:11px" data-a="toggle-llm-settings">⚙️ ' + (isGroq ? '⚡ Groq LPU (' + shortModel + ')' : '💻 Ollama') + '</button>' +
         '<a class="btn ghost" href="' + API_BASE + '/export/audit-report" target="_blank" style="padding:4px 10px;font-size:11px">📄 Executive Audit Report ↗</a>' +
       '</div>' +
     '</div>' +
+    settingsPanel +
     '<div class="pill-tray">' +
       '<button class="pill-btn" data-a="quick-copilot" data-v="Why move HU102 out of Room 202?">"Why move HU102 out of Room 202?"</button>' +
       '<button class="pill-btn" data-a="quick-copilot" data-v="How much power does our 100 kWp rooftop solar generate?">"Rooftop solar generation"</button>' +
@@ -1255,10 +1313,10 @@ function renderCopilotChat(){
         return '<div class="bubble ' + m.from + '">' +
           '<div>' + formatCopilotText(m.text) + '</div>' +
           (m.action_dispatched ? '<div style="margin-top:6px"><span class="badge badge-act" style="background:rgba(76,195,138,.2);color:var(--ok);border-color:var(--ok)">⚡ ACTION EXECUTED</span></div>' : '') +
-          '<div class="bubble-meta">' + (m.from==='user' ? 'Facility Director' : 'VERDANT Copilot (Grounded Model)') + (m.mode ? ' · ' + m.mode : '') + '</div>' +
+          '<div class="bubble-meta">' + (m.from==='user' ? 'Facility Director' : 'VERDANT Copilot (' + (m.mode || (isGroq ? 'Groq Cloud LPU' : 'Grounded Model')) + ')') + (m.latency_ms ? ' · ' + m.latency_ms + 'ms' : '') + '</div>' +
         '</div>';
       }).join('') +
-      (state.copilotLoading ? '<div class="bubble copilot" style="font-style:italic;color:var(--gray)">AI Copilot is analyzing live building telemetry and solving constraints...</div>' : '') +
+      (state.copilotLoading ? '<div class="bubble copilot" style="font-style:italic;color:var(--gray)">AI Copilot (' + (isGroq ? 'Groq Cloud LPU' : 'Ollama') + ') is analyzing live telemetry and solving constraints...</div>' : '') +
     '</div>' +
     '<div style="display:flex;gap:8px">' +
       '<input type="text" id="copilot-input" placeholder="Ask VERDANT Copilot anything about room scheduling, tariffs, or comfort..." style="flex:1;background:#100E10;border:1px solid var(--line);border-radius:999px;padding:10px 18px;color:var(--white);font-size:13px" onkeydown="if(event.key===\'Enter\'){document.querySelector(\'[data-a=\\\'send-copilot\\\']\').click()}">' +
@@ -1270,12 +1328,14 @@ function renderCopilotChat(){
 function vAd(){
   const all=REC.filter(c=>state.rs[c.id]!='dis'),I=imp(sim(comb(all)),BASE),b=sum(ser(BASE));
   const adv = state.advisorResponse;
+  const isGroq = state.llmProvider === 'groq';
+  const shortModel = state.llmModel.includes('/') ? state.llmModel.split('/')[1] : state.llmModel;
   
   return head('Energy Advisor & AI Facility Copilot','Conversational intelligence and evidence-based recommendations grounded strictly in backend simulation numbers.')+
     renderCopilotChat()+
     '<div class="card kpi hi" style="cursor:default;margin-bottom:14px">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'+
-        '<span class="chip" style="color:var(--white);border-color:var(--white)"><i></i>Mode: '+(adv ? adv.mode : 'LLM (Ollama llama3.2 / Template Fallback)')+'</span>'+
+        '<span class="chip" style="color:var(--white);border-color:var(--white)"><i></i>Mode: '+(adv ? adv.mode : (isGroq ? 'Groq Cloud AI (' + shortModel + ')' : 'LLM (Ollama llama3.2)'))+'</span>'+
         '<button class="btn" data-a="ask-advisor">Ask AI Advisor to Analyze Plan</button>'+
       '</div>'+
       '<p style="margin:12px 0 0;font-size:15px">'+
@@ -2132,8 +2192,17 @@ document.addEventListener('click',async e=>{
   }
   else if(a=='ask-advisor'){
     try {
-      t.innerText = 'Calling llama3.2...';
-      const res = await fetch(API_BASE+'/advisor/explain',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({context_type:'plan'})});
+      t.innerText = 'Calling ' + (state.llmProvider === 'groq' ? 'Groq LPU...' : 'Ollama...');
+      const res = await fetch(API_BASE+'/advisor/explain',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          context_type:'plan',
+          api_key: state.llmApiKey,
+          provider: state.llmProvider,
+          model: state.llmModel
+        })
+      });
       if(res.ok){state.advisorResponse = await res.json();render();}
     } catch(err){}
   }
@@ -2318,7 +2387,13 @@ document.addEventListener('click',async e=>{
       const res = await fetch(API_BASE+'/intelligence/copilot/chat', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({prompt: txt, history: historyPayload})
+        body:JSON.stringify({
+          prompt: txt,
+          history: historyPayload,
+          api_key: state.llmApiKey,
+          provider: state.llmProvider,
+          model: state.llmModel
+        })
       });
       if(res.ok){
         const data = await res.json();
@@ -2330,6 +2405,7 @@ document.addEventListener('click',async e=>{
           from:'copilot',
           text: data.reply,
           mode: data.mode,
+          latency_ms: data.latency_ms,
           action_dispatched: data.action_dispatched,
           sources: data.sources
         });
@@ -2350,6 +2426,77 @@ document.addEventListener('click',async e=>{
     if(input) input.value = v;
     const sendBtn = document.querySelector('[data-a="send-copilot"]');
     if(sendBtn) sendBtn.click();
+  }
+  else if(a=='toggle-llm-settings'){
+    state.showLlmSettings = !state.showLlmSettings;
+    render();
+  }
+  else if(a=='set-llm-provider'){
+    state.llmProvider = v;
+    localStorage.setItem('verdant_llm_provider', v);
+    render();
+  }
+  else if(a=='save-llm-settings'){
+    const keyEl = document.getElementById('llm-key-input');
+    const modEl = document.getElementById('llm-model-select');
+    if(keyEl) {
+      state.llmApiKey = keyEl.value.trim();
+      localStorage.setItem('verdant_llm_api_key', state.llmApiKey);
+    }
+    if(modEl) {
+      state.llmModel = modEl.value.trim();
+      localStorage.setItem('verdant_llm_model', state.llmModel);
+    }
+    fetch(API_BASE + '/intelligence/llm/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        provider: state.llmProvider,
+        api_key: state.llmApiKey,
+        model: state.llmModel
+      })
+    }).catch(function(){});
+    state.showLlmSettings = false;
+    render();
+    alert('✓ Custom LLM settings saved & applied!\n\nEngine: ' + state.llmProvider.toUpperCase() + '\nModel: ' + state.llmModel + '\nAPI Key: ' + (state.llmApiKey ? state.llmApiKey.slice(0,8) + '...' : 'Default System Key'));
+  }
+  else if(a=='reset-llm-key'){
+    state.llmApiKey = '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';
+    state.llmModel = 'qwen/qwen3.8-27b';
+    state.llmProvider = 'groq';
+    state.llmTestResult = null;
+    localStorage.setItem('verdant_llm_api_key', state.llmApiKey);
+    localStorage.setItem('verdant_llm_model', state.llmModel);
+    localStorage.setItem('verdant_llm_provider', state.llmProvider);
+    fetch(API_BASE + '/intelligence/llm/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ provider: 'groq', api_key: state.llmApiKey, model: state.llmModel })
+    }).catch(function(){});
+    render();
+    alert('Reset to default system Groq API credentials.');
+  }
+  else if(a=='test-llm-key'){
+    const keyEl = document.getElementById('llm-key-input');
+    const modEl = document.getElementById('llm-model-select');
+    const testKey = keyEl ? keyEl.value.trim() : state.llmApiKey;
+    const testMod = modEl ? modEl.value.trim() : state.llmModel;
+    t.innerText = 'Testing...';
+    try {
+      const res = await fetch(API_BASE + '/intelligence/llm/test', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ api_key: testKey, model: testMod })
+      });
+      if(res.ok) {
+        state.llmTestResult = await res.json();
+      } else {
+        state.llmTestResult = { valid: false, error: 'Connection test failed with HTTP ' + res.status };
+      }
+    } catch(err) {
+      state.llmTestResult = { valid: false, error: err.message || 'Network error' };
+    }
+    render();
   }
   else if(a=='tt-sub'){
     state.ttSubView = v;

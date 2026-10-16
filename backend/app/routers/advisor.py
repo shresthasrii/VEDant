@@ -49,5 +49,10 @@ def get_advisor_explanation(req: AdvisorExplainRequest):
             plan_dict["moves"] = moves
             plan_dict["empty_rooms_freed"] = ["Seminar Hall 202"]
             
-    explanation = explain_plan(plan_dict)
+    explanation = explain_plan(
+        plan_dict,
+        api_key=req.api_key,
+        provider=req.provider,
+        model=req.model
+    )
     return AdvisorResponse(**explanation)
